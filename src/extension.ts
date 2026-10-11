@@ -305,202 +305,300 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {
-      --bg-color: var(--vscode-sideBar-background, #1e1e1e);
-      --text-color: var(--vscode-sideBar-foreground, #cccccc);
-      --btn-bg: #007acc;
-      --btn-hover: #0062a3;
-      --card-bg: rgba(255, 255, 255, 0.04);
-      --border-color: var(--vscode-widget-border, rgba(255, 255, 255, 0.1));
+      --bg-color: var(--vscode-sideBar-background, #181a1f);
+      --text-color: var(--vscode-sideBar-foreground, #dcdcdc);
+      --primary-gemini: linear-gradient(135deg, #4285f4 0%, #9b72cf 50%, #d96570 100%);
+      --glass-bg: rgba(255, 255, 255, 0.04);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
+
+    * { box-sizing: border-box; }
 
     body {
       background-color: var(--bg-color);
       color: var(--text-color);
-      font-family: var(--vscode-font-family, sans-serif);
+      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
       font-size: 13px;
       margin: 0;
       padding: 14px;
-      box-sizing: border-box;
       user-select: none;
+      overflow-x: hidden;
     }
 
+    /* 3D Header Card */
     .header-card {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 10px 12px;
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      margin-bottom: 14px;
+      padding: 12px 14px;
+      background: linear-gradient(145deg, rgba(32, 38, 52, 0.7), rgba(18, 21, 28, 0.8));
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      box-shadow: var(--card-shadow);
+      margin-bottom: 16px;
     }
 
     .avatar-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: #0e639c;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--primary-gemini);
       color: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 700;
-      font-size: 14px;
+      font-weight: 800;
+      font-size: 15px;
+      box-shadow: 0 4px 15px rgba(155, 114, 207, 0.45);
       flex-shrink: 0;
     }
 
-    .header-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .title {
-      font-weight: 600;
-      font-size: 13px;
-      color: var(--vscode-editor-foreground, #ffffff);
-    }
+    .header-info { display: flex; flex-direction: column; gap: 3px; }
+    .title { font-weight: 700; font-size: 13px; letter-spacing: 0.3px; color: #ffffff; }
 
     .badge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       font-size: 10px;
-      color: #4ec9b0;
       font-weight: 600;
+      color: #4ec9b0;
     }
 
-    .prompt-box {
-      margin-bottom: 14px;
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: #4ec9b0;
+      box-shadow: 0 0 8px #4ec9b0;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+      color: #8b949e;
       display: flex;
-      flex-direction: column;
+      align-items: center;
       gap: 6px;
+    }
+
+    /* 3D Glass Prompt Box with Glow */
+    .prompt-box-wrapper {
+      position: relative;
+      margin-bottom: 16px;
+      background: linear-gradient(145deg, rgba(25, 29, 39, 0.9), rgba(15, 17, 23, 0.95));
+      border-radius: 12px;
+      padding: 10px;
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), inset 0 2px 4px rgba(0, 0, 0, 0.5);
+      transition: all 0.3s ease;
+    }
+
+    .prompt-box-wrapper:focus-within {
+      border-color: #9b72cf;
+      box-shadow: 0 0 20px rgba(155, 114, 207, 0.35), inset 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
     textarea {
       width: 100%;
-      box-sizing: border-box;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid var(--border-color);
-      color: var(--text-color);
-      padding: 8px;
-      border-radius: 6px;
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      padding: 4px;
       font-family: inherit;
-      font-size: 12px;
+      font-size: 12.5px;
       resize: vertical;
-      min-height: 55px;
+      min-height: 65px;
+      outline: none;
+      line-height: 1.45;
     }
 
-    textarea:focus {
-      outline: 1px solid var(--btn-bg);
+    textarea::placeholder {
+      color: rgba(255, 255, 255, 0.35);
+      font-style: italic;
+    }
+
+    /* Tactile 3D Buttons */
+    .btn-3d {
+      border: none;
+      border-radius: 9px;
+      padding: 10px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      position: relative;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.15s ease;
+      user-select: none;
+    }
+
+    .btn-generate {
+      background: linear-gradient(135deg, #1f883d 0%, #106027 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(31, 136, 61, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+      margin-top: 8px;
+    }
+
+    .btn-generate:hover:not(:disabled) {
+      filter: brightness(1.15);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(31, 136, 61, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    }
+
+    .btn-3d:active:not(:disabled) {
+      transform: translateY(2px) !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
     }
 
     .btn-group {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 14px;
+      gap: 10px;
+      margin-bottom: 16px;
     }
 
-    button {
-      background: var(--btn-bg);
+    .btn-action {
+      background: linear-gradient(145deg, #1f6feb 0%, #0d419d 100%);
       color: #ffffff;
-      border: none;
-      border-radius: 6px;
-      padding: 9px 12px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 8px;
-      width: 100%;
-      transition: background 0.15s ease;
+      box-shadow: 0 4px 12px rgba(31, 111, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
     }
 
-    button.primary-generate {
-      background: #2e7d32;
+    .btn-action:hover:not(:disabled) {
+      filter: brightness(1.12);
+      transform: translateY(-1px);
     }
 
-    button.primary-generate:hover:not(:disabled) {
-      background: #1b5e20;
+    .btn-secondary {
+      background: linear-gradient(145deg, #2d333b 0%, #22272e 100%);
+      color: #cdd9e5;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
-    button:hover:not(:disabled) {
-      background: var(--btn-hover);
+    .btn-secondary:hover:not(:disabled) {
+      background: linear-gradient(145deg, #373e47 0%, #282e37 100%);
+      transform: translateY(-1px);
     }
 
     button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
-    }
-
-    .section-title {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-      color: var(--vscode-sideBarTitle-foreground, #aaaaaa);
+      filter: grayscale(0.5);
     }
 
     .summary-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 10px;
+      background: linear-gradient(145deg, rgba(20, 24, 33, 0.8), rgba(12, 14, 20, 0.9));
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 14px;
       font-size: 12px;
-      line-height: 1.4;
-      max-height: 280px;
+      line-height: 1.55;
+      max-height: 290px;
       overflow-y: auto;
       user-select: text;
       word-break: break-word;
       white-space: pre-wrap;
+      box-shadow: var(--card-shadow);
     }
 
     .empty-state {
-      opacity: 0.6;
+      opacity: 0.55;
       font-style: italic;
+      text-align: center;
+      padding: 12px 4px;
+    }
+
+    /* Gmail & Gemini Shimmer Wave Animation */
+    .gemini-shimmer-box {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 6px 0;
+    }
+
+    .shimmer-line {
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(66, 133, 244, 0.25) 25%,
+        rgba(155, 114, 207, 0.35) 50%,
+        rgba(217, 101, 112, 0.25) 75%,
+        rgba(255, 255, 255, 0.05) 100%
+      );
+      background-size: 300% 100%;
+      animation: waveShimmer 2s infinite ease-in-out;
+    }
+
+    .shimmer-line.short { width: 65%; }
+    .shimmer-line.medium { width: 85%; }
+
+    @keyframes waveShimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
     }
 
     .suggestions-block {
-      margin-top: 8px;
-      padding-top: 6px;
-      border-top: 1px solid var(--border-color);
-      color: #dcdcaa;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(220, 220, 170, 0.08);
+      border-left: 3px solid #dcdcaa;
+      color: #e5e5b8;
     }
   </style>
 </head>
 <body>
   <div class="header-card">
-    <div class="avatar-icon">AI</div>
+    <div class="avatar-icon">✨</div>
     <div class="header-info">
-      <span class="title">AI Workspace Companion</span>
-      <span class="badge-status">Cloud Engine 24/7 Active</span>
+      <span class="title">AI Companion</span>
+      <span class="badge-status">
+        <span class="status-dot"></span>
+        Gemini 24/7 Engine
+      </span>
     </div>
   </div>
 
-  <div class="prompt-box">
-    <div class="section-title">Prompt Gemini For Code</div>
-    <textarea id="promptInput" placeholder="e.g. Write a function to validate an email address..."></textarea>
-    <button id="generateBtn" class="primary-generate">
+  <div class="section-title">💬 Prompt AI for Code</div>
+  <div class="prompt-box-wrapper">
+    <textarea id="promptInput" placeholder="Jaise: Write a function to check palindrome in JS, ya Hinglish me type karein..."></textarea>
+    <button id="generateBtn" class="btn-3d btn-generate">
       <span>✨</span>
       <span>Generate Fresh Code</span>
     </button>
   </div>
 
   <div class="btn-group">
-    <button id="fixBtn">
+    <button id="fixBtn" class="btn-3d btn-action">
       <span>⚡</span>
-      <span>Fix & Refactor Selection (Ctrl+Alt+F)</span>
+      <span>Fix & Refactor (Ctrl+Alt+F)</span>
     </button>
-    <button id="summarizeBtn">
+    <button id="summarizeBtn" class="btn-3d btn-secondary">
       <span>📑</span>
-      <span>Summarize File / Selection</span>
+      <span>Summarize Selection</span>
     </button>
   </div>
 
-  <div class="section-title">AI Analysis / Generated Output</div>
+  <div class="section-title">📊 Live Output</div>
   <div class="summary-card" id="summaryContainer">
-    <div class="empty-state">Type a prompt above to generate code, or highlight existing code to fix/summarize.</div>
+    <div class="empty-state">Upar prompt likhein ya code select karke Fix / Summarize par click karein.</div>
   </div>
 
   <script>
@@ -534,14 +632,20 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
           fixBtn.disabled = message.isLoading;
           summarizeBtn.disabled = message.isLoading;
           if (message.isLoading) {
-            summaryContainer.innerHTML = '<span style="opacity: 0.8;">⏳ ' + (message.statusText || 'Working...') + '</span>';
+            summaryContainer.innerHTML =
+              '<div class="gemini-shimmer-box">' +
+                '<span style="font-size: 11px; opacity: 0.85; font-weight: 600;">✨ ' + (message.statusText || 'Gemini is processing...') + '</span>' +
+                '<div class="shimmer-line"></div>' +
+                '<div class="shimmer-line medium"></div>' +
+                '<div class="shimmer-line short"></div>' +
+              '</div>';
           }
           break;
 
         case 'updateSummary':
           let content = message.summary || '';
           if (message.suggestions) {
-            content += '\\n\\n<div class="suggestions-block">💡 <strong>Details:</strong> ' + message.suggestions + '</div>';
+            content += '<div class="suggestions-block">💡 <strong>Details:</strong> ' + message.suggestions + '</div>';
           }
           summaryContainer.innerHTML = content;
           break;

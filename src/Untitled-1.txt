@@ -1,59 +1,31 @@
-// Function to calculate user discount and format currency
-function applyDiscount(price, discountPercent) {
-    if (typeof price !== "number" || typeof discountPercent !== "number" || price < 0 || discountPercent < 0 || discountPercent > 100) {
-        return "Invalid input";
+/**
+ * Removes duplicate elements from an array and returns a sorted array.
+ * 
+ * @param {Array} arr - The input array (e.g., numbers or strings)
+ * @returns {Array} - A new array with unique elements sorted in ascending order
+ */
+function removeDuplicatesAndSort(arr) {
+  // Validate input
+  if (!Array.isArray(arr)) {
+    throw new TypeError('Input must be a valid array');
+  }
+
+  // Step 1: Remove duplicates using ES6 Set
+  const uniqueArray = Array.from(new Set(arr));
+
+  // Step 2: Sort the array
+  // Using a custom comparator to correctly sort both numbers and strings
+  return uniqueArray.sort((a, b) => {
+    if (typeof a === 'number' && typeof b === 'number') {
+      return a - b; // Numeric ascending sort
     }
-    
-    const finalPrice = price * (1 - discountPercent / 100);
-    return `$${finalPrice.toFixed(2)}`;
+    return String(a).localeCompare(String(b)); // String alphabetical sort
+  });
 }
 
-console.log(applyDiscount(200, 15));const express = require('express');
-const bcrypt = require('bcrypt');
+// Example Usage:
+// const numbers = [5, 2, 8, 2, 1, 5, 9];
+// console.log(removeDuplicatesAndSort(numbers)); // Output: [1, 2, 5, 8, 9]
 
-const router = express.Router();
-
-// Temporary in-memory database for demonstration purposes
-const users = [];
-
-/**
- * POST /api/register
- * Registers a new user with a hashed password.
- */
-router.post('/register', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    // Validate input
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
-    }
-
-    // Check if user already exists
-    const existingUser = users.find(u => u.username === username);
-    if (existingUser) {
-      return res.status(409).json({ error: 'Username already taken' });
-    }
-
-    // Define salt rounds for bcrypt
-    const saltRounds = 10;
-
-    // Hash the password securely
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    // Save the user (in a real app, this would be a database call)
-    const newUser = { username, password: hashedPassword };
-    users.push(newUser);
-
-    // Respond with success (excluding the password)
-    return res.status(201).json({
-      message: 'User registered successfully',
-      user: { username }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-module.exports = router;
+// const strings = ['banana', 'apple', 'banana', 'cherry'];
+// console.log(removeDuplicatesAndSort(strings)); // Output: ['apple', 'banana', 'cherry']
