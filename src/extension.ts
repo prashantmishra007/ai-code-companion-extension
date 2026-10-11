@@ -6,13 +6,13 @@ const API_BASE = 'https://ai-copilot-backend-oskz.onrender.com';
 export function activate(context: vscode.ExtensionContext) {
   const provider = new AICopilotViewProvider(context.extensionUri);
 
-  // Register the Webview View Provider across common view ID aliases to ensure immediate attachment
   const viewIds = [
+    'ai-assistant.view',
+    'ai-assistant-sidebar',
     'ai-companion-sidebar',
     'ai-copilot-view',
     'aiAssistantView',
     'ai-workspace-companion',
-    'ai-assistant-sidebar',
     'dev-refactor-ai.sidebar'
   ];
 
@@ -23,12 +23,86 @@ export function activate(context: vscode.ExtensionContext) {
           webviewOptions: { retainContextWhenHidden: true }
         })
       );
-    } catch {
-      // Ignored if ID is not declared in package.json
-    }
+    } catch {}
   });
 
-  // Handler for Fix & Refactor
+  // 1. Generate Fresh Code Handler
+  const executeGenerateCode = async (userPrompt?: string) => {
+    const editor = vscode.window.activeTextEditor;
+    const language = editor ? editor.document.languageId : 'javascript';
+
+    // If no prompt passed from sidebar, open an input box prompt at the top
+    let promptText = userPrompt;
+    if (!promptText) {
+      promptText = await vscode.window.showInputBox({
+        title: 'Generate Fresh Code with Gemini',
+        prompt: 'Describe what you want Gemini to write (e.g., "Create a debounce function in TypeScript")',
+        placeHolder: 'Type your requirements here...'
+      });
+    }
+
+    if (!promptText || promptText.trim() === '') {
+      return;
+    }
+
+    provider.setLoading(true, 'Generating custom code with Gemini...');
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Gemini is generating your code...',
+        cancellable: false
+      },
+      async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/generate-code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: promptText,
+              language: language
+            })
+          });
+
+          if (!response.ok) {
+            const errData = (await response.json().catch(() => ({}))) as { error?: string };
+            throw new Error(errData.error || `HTTP ${response.status}`);
+          }
+
+          const result = (await response.json()) as { code?: string; explanation?: string };
+
+          if (result.code) {
+            if (editor) {
+              await editor.edit(editBuilder => {
+                editBuilder.insert(editor.selection.active, result.code + '\n');
+              });
+            } else {
+              const doc = await vscode.workspace.openTextDocument({
+                content: result.code,
+                language: language
+              });
+              await vscode.window.showTextDocument(doc);
+            }
+
+            provider.updateSummary(
+              `Generated Code:\n\n${result.code}`,
+              result.explanation || 'Code successfully generated and placed into your editor.'
+            );
+            vscode.window.showInformationMessage('Code generated and inserted successfully!');
+          } else {
+            throw new Error('No code received from the generator.');
+          }
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Generation failed: ${err.message || err}`);
+          provider.updateSummary(`Generation error: ${err.message || err}`);
+        } finally {
+          provider.setLoading(false);
+        }
+      }
+    );
+  };
+
+  // 2. Fix & Refactor Handler
   const executeFixCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -89,7 +163,7 @@ export function activate(context: vscode.ExtensionContext) {
               `Fixed! ${result.explanation || 'Code optimized and repaired successfully.'}`
             );
           } else {
-            throw new Error('No refactored code returned by the engine.');
+            throw new Error('No refactored code returned.');
           }
         } catch (err: any) {
           vscode.window.showErrorMessage(`AI Fix failed: ${err.message || err}`);
@@ -100,7 +174,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
   };
 
-  // Handler for Summarize
+  // 3. Summarize Handler
   const executeSummarizeCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -145,44 +219,30 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  // Register command aliases so Ctrl+Alt+F and command palette actions work immediately
-  const fixCommandIds = [
-    'ai-companion.fixCode',
-    'ai-copilot.fixCode',
-    'extension.fixCode',
-    'dev-refactor-ai.fixCode'
-  ];
+  // Register commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-companion.generateCode', () => executeGenerateCode()),
+    vscode.commands.registerCommand('ai-companion.fixCode', executeFixCode),
+    vscode.commands.registerCommand('ai-companion.summarizeCode', executeSummarizeCode)
+  );
 
-  const summarizeCommandIds = [
-    'ai-companion.summarizeCode',
-    'ai-copilot.summarizeCode',
-    'extension.summarizeCode',
-    'dev-refactor-ai.summarizeCode'
-  ];
-
-  fixCommandIds.forEach(cmd => {
-    try {
-      context.subscriptions.push(vscode.commands.registerCommand(cmd, executeFixCode));
-    } catch {}
-  });
-
-  summarizeCommandIds.forEach(cmd => {
-    try {
-      context.subscriptions.push(vscode.commands.registerCommand(cmd, executeSummarizeCode));
-    } catch {}
-  });
-
-  // Connect Webview button messages to handlers
+  // Link Webview button actions
+  provider.onGenerateRequested(prompt => executeGenerateCode(prompt));
   provider.onFixRequested(executeFixCode);
   provider.onSummarizeRequested(executeSummarizeCode);
 }
 
 class AICopilotViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
+  private _generateCallback?: (prompt: string) => Promise<void>;
   private _fixCallback?: () => Promise<void>;
   private _summarizeCallback?: () => Promise<void>;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
+
+  public onGenerateRequested(fn: (prompt: string) => Promise<void>) {
+    this._generateCallback = fn;
+  }
 
   public onFixRequested(fn: () => Promise<void>) {
     this._fixCallback = fn;
@@ -192,11 +252,7 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     this._summarizeCallback = fn;
   }
 
-  public resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken
-  ) {
+  public resolveWebviewView(webviewView: vscode.WebviewView) {
     this._view = webviewView;
 
     webviewView.webview.options = {
@@ -208,6 +264,9 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async data => {
       switch (data.type) {
+        case 'generateCode':
+          if (this._generateCallback) await this._generateCallback(data.prompt);
+          break;
         case 'fixCode':
           if (this._fixCallback) await this._fixCallback();
           break;
@@ -273,12 +332,12 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       background: var(--card-bg);
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .avatar-icon {
-      width: 38px;
-      height: 38px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       background: #0e639c;
       color: #ffffff;
@@ -286,8 +345,7 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      font-size: 15px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      font-size: 14px;
       flex-shrink: 0;
     }
 
@@ -303,23 +361,42 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-editor-foreground, #ffffff);
     }
 
-    .model-name {
-      font-size: 11px;
-      opacity: 0.8;
-    }
-
     .badge-status {
-      display: inline-block;
       font-size: 10px;
       color: #4ec9b0;
       font-weight: 600;
+    }
+
+    .prompt-box {
+      margin-bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      padding: 8px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 55px;
+    }
+
+    textarea:focus {
+      outline: 1px solid var(--btn-bg);
     }
 
     .btn-group {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     button {
@@ -327,7 +404,7 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       color: #ffffff;
       border: none;
       border-radius: 6px;
-      padding: 10px 14px;
+      padding: 9px 12px;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
@@ -335,9 +412,16 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       align-items: center;
       justify-content: flex-start;
       gap: 8px;
-      transition: background 0.15s ease, opacity 0.15s ease;
       width: 100%;
-      text-align: left;
+      transition: background 0.15s ease;
+    }
+
+    button.primary-generate {
+      background: #2e7d32;
+    }
+
+    button.primary-generate:hover:not(:disabled) {
+      background: #1b5e20;
     }
 
     button:hover:not(:disabled) {
@@ -350,11 +434,11 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     }
 
     .section-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: var(--vscode-sideBarTitle-foreground, #aaaaaa);
     }
 
@@ -362,10 +446,10 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       background: var(--card-bg);
       border: 1px solid var(--border-color);
       border-radius: 6px;
-      padding: 12px;
+      padding: 10px;
       font-size: 12px;
-      line-height: 1.5;
-      max-height: 380px;
+      line-height: 1.4;
+      max-height: 280px;
       overflow-y: auto;
       user-select: text;
       word-break: break-word;
@@ -378,10 +462,9 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     }
 
     .suggestions-block {
-      margin-top: 10px;
-      padding-top: 8px;
+      margin-top: 8px;
+      padding-top: 6px;
       border-top: 1px solid var(--border-color);
-      font-weight: 500;
       color: #dcdcaa;
     }
   </style>
@@ -391,32 +474,49 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     <div class="avatar-icon">AI</div>
     <div class="header-info">
       <span class="title">AI Workspace Companion</span>
-      <span class="model-name">Gemini Cloud Engine</span>
-      <span class="badge-status">Active</span>
+      <span class="badge-status">Cloud Engine 24/7 Active</span>
     </div>
   </div>
 
+  <div class="prompt-box">
+    <div class="section-title">Prompt Gemini For Code</div>
+    <textarea id="promptInput" placeholder="e.g. Write a function to validate an email address..."></textarea>
+    <button id="generateBtn" class="primary-generate">
+      <span>✨</span>
+      <span>Generate Fresh Code</span>
+    </button>
+  </div>
+
   <div class="btn-group">
+    <button id="fixBtn">
+      <span>⚡</span>
+      <span>Fix & Refactor Selection (Ctrl+Alt+F)</span>
+    </button>
     <button id="summarizeBtn">
       <span>📑</span>
       <span>Summarize File / Selection</span>
     </button>
-    <button id="fixBtn">
-      <span>⚡</span>
-      <span>Fix & Refactor Selected Code (Ctrl+Alt+F)</span>
-    </button>
   </div>
 
-  <div class="section-title">Code Summary</div>
+  <div class="section-title">AI Analysis / Generated Output</div>
   <div class="summary-card" id="summaryContainer">
-    <div class="empty-state">Highlight code and click Summarize or Fix to inspect AI analysis.</div>
+    <div class="empty-state">Type a prompt above to generate code, or highlight existing code to fix/summarize.</div>
   </div>
 
   <script>
     const vscode = acquireVsCodeApi();
+    const generateBtn = document.getElementById('generateBtn');
     const fixBtn = document.getElementById('fixBtn');
     const summarizeBtn = document.getElementById('summarizeBtn');
+    const promptInput = document.getElementById('promptInput');
     const summaryContainer = document.getElementById('summaryContainer');
+
+    generateBtn.addEventListener('click', () => {
+      const text = promptInput.value.trim();
+      if (text) {
+        vscode.postMessage({ type: 'generateCode', prompt: text });
+      }
+    });
 
     fixBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'fixCode' });
@@ -430,6 +530,7 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       const message = event.data;
       switch (message.type) {
         case 'setLoading':
+          generateBtn.disabled = message.isLoading;
           fixBtn.disabled = message.isLoading;
           summarizeBtn.disabled = message.isLoading;
           if (message.isLoading) {
@@ -440,7 +541,7 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
         case 'updateSummary':
           let content = message.summary || '';
           if (message.suggestions) {
-            content += '\\n\\n<div class="suggestions-block">💡 <strong>Tips:</strong> ' + message.suggestions + '</div>';
+            content += '\\n\\n<div class="suggestions-block">💡 <strong>Details:</strong> ' + message.suggestions + '</div>';
           }
           summaryContainer.innerHTML = content;
           break;
