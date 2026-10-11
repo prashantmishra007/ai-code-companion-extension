@@ -5,27 +5,86 @@
  * @returns {Array} - A new array with unique elements sorted in ascending order
  */
 function removeDuplicatesAndSort(arr) {
-  // Validate input
   if (!Array.isArray(arr)) {
     throw new TypeError('Input must be a valid array');
   }
 
-  // Step 1: Remove duplicates using ES6 Set
-  const uniqueArray = Array.from(new Set(arr));
-
-  // Step 2: Sort the array
-  // Using a custom comparator to correctly sort both numbers and strings
-  return uniqueArray.sort((a, b) => {
+  return Array.from(new Set(arr)).sort((a, b) => {
     if (typeof a === 'number' && typeof b === 'number') {
-      return a - b; // Numeric ascending sort
+      return a - b;
     }
-    return String(a).localeCompare(String(b)); // String alphabetical sort
+    return String(a).localeCompare(String(b));
   });
 }
 
-// Example Usage:
-// const numbers = [5, 2, 8, 2, 1, 5, 9];
-// console.log(removeDuplicatesAndSort(numbers)); // Output: [1, 2, 5, 8, 9]
+/**
+ * Determines if two strings are anagrams of each other.
+ * An anagram is a word or phrase formed by rearranging the letters of a different,
+ * typically using all the original letters exactly once, ignoring spaces and case.
+ *
+ * @param {string} str1 - The first string to compare.
+ * @param {string} str2 - The second string to compare.
+ * @returns {boolean} - Returns true if they are anagrams, false otherwise.
+ */
+function areAnagrams(str1, str2) {
+  if (typeof str1 !== 'string' || typeof str2 !== 'string') {
+    return false;
+  }
 
-// const strings = ['banana', 'apple', 'banana', 'cherry'];
-// console.log(removeDuplicatesAndSort(strings)); // Output: ['apple', 'banana', 'cherry']
+  const cleanString = (str) => str.replace(/[^\w]/g, '').toLowerCase();
+  const cleanedStr1 = cleanString(str1);
+  const cleanedStr2 = cleanString(str2);
+
+  if (cleanedStr1.length !== cleanedStr2.length) {
+    return false;
+  }
+
+  const charMap = {};
+  for (const char of cleanedStr1) {
+    charMap[char] = (charMap[char] || 0) + 1;
+  }
+
+  for (const char of cleanedStr2) {
+    if (!charMap[char]) {
+      return false;
+    }
+    charMap[char]--;
+  }
+
+  return true;
+}
+
+/**
+ * Reverses a given string, with support for Unicode characters (e.g., emojis).
+ *
+ * @param {string} str - The string to reverse.
+ * @returns {string} The reversed string.
+ * @throws {TypeError} If the input is not a string.
+ */
+function reverseString(str) {
+  if (typeof str !== 'string') {
+    throw new TypeError('Input must be a string');
+  }
+
+  return [...str].reverse().join('');
+}
+
+/**
+ * Returns a personalized greeting.
+ *
+ * @param {string} name - The name to greet.
+ * @returns {string} Greeting message.
+ */
+function greetUser(name) {
+  return `Hello, ${name}! Welcome to JavaScript programming.`;
+}
+
+/**
+ * Returns the square of a given number.
+ *
+ * @param {number} number - The number to square.
+ * @returns {number} The square of the input number.
+ */
+function calculateSquare(number) {
+  return number ** 2;
+}

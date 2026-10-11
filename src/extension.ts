@@ -31,7 +31,6 @@ export function activate(context: vscode.ExtensionContext) {
     const editor = vscode.window.activeTextEditor;
     const language = editor ? editor.document.languageId : 'javascript';
 
-    // If no prompt passed from sidebar, open an input box prompt at the top
     let promptText = userPrompt;
     if (!promptText) {
       promptText = await vscode.window.showInputBox({
@@ -158,6 +157,11 @@ export function activate(context: vscode.ExtensionContext) {
                 editBuilder.replace(selection, result.fixedCode!);
               }
             });
+
+            provider.updateSummary(
+              'Code refactored and updated successfully.',
+              result.explanation || 'Optimized code syntax and structure.'
+            );
 
             vscode.window.showInformationMessage(
               `Fixed! ${result.explanation || 'Code optimized and repaired successfully.'}`
@@ -326,7 +330,6 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       overflow-x: hidden;
     }
 
-    /* 3D Header Card */
     .header-card {
       position: relative;
       display: flex;
@@ -394,7 +397,6 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       gap: 6px;
     }
 
-    /* 3D Glass Prompt Box with Glow */
     .prompt-box-wrapper {
       position: relative;
       margin-bottom: 16px;
@@ -430,7 +432,6 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       font-style: italic;
     }
 
-    /* Tactile 3D Buttons */
     .btn-3d {
       border: none;
       border-radius: 9px;
@@ -523,7 +524,6 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
       padding: 12px 4px;
     }
 
-    /* Gmail & Gemini Shimmer Wave Animation */
     .gemini-shimmer-box {
       display: flex;
       flex-direction: column;
@@ -609,7 +609,62 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     const promptInput = document.getElementById('promptInput');
     const summaryContainer = document.getElementById('summaryContainer');
 
+    // Shared AudioContext for browser autoplay unlocking
+    let audioCtx = null;
+
+    function unlockAudioContext() {
+      try {
+        const AudioClass = window.AudioContext || window.webkitAudioContext;
+        if (!audioCtx && AudioClass) {
+          audioCtx = new AudioClass();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      } catch (e) {
+        console.warn('Unlock audio failed', e);
+      }
+    }
+
+    // Play clean two-tone chime bell sound
+    function playNotificationSound() {
+      try {
+        unlockAudioContext();
+        if (!audioCtx) return;
+
+        const now = audioCtx.currentTime;
+
+        // Note 1: Clear Ding (880Hz - A5)
+        const osc1 = audioCtx.createOscillator();
+        const gain1 = audioCtx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(880, now);
+        gain1.gain.setValueAtTime(0.25, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.28);
+
+        // Note 2: Harmonious Chime (1320Hz - E6)
+        const osc2 = audioCtx.createOscillator();
+        const gain2 = audioCtx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(1320, now + 0.12);
+        gain2.gain.setValueAtTime(0.28, now + 0.12);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.start(now + 0.12);
+        osc2.stop(now + 0.45);
+      } catch (err) {
+        console.warn('Audio playback error:', err);
+      }
+    }
+
+    // Unlock audio instantly when user clicks any action
     generateBtn.addEventListener('click', () => {
+      unlockAudioContext();
       const text = promptInput.value.trim();
       if (text) {
         vscode.postMessage({ type: 'generateCode', prompt: text });
@@ -617,11 +672,17 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
     });
 
     fixBtn.addEventListener('click', () => {
+      unlockAudioContext();
       vscode.postMessage({ type: 'fixCode' });
     });
 
     summarizeBtn.addEventListener('click', () => {
+      unlockAudioContext();
       vscode.postMessage({ type: 'summarizeCode' });
+    });
+
+    promptInput.addEventListener('focus', () => {
+      unlockAudioContext();
     });
 
     window.addEventListener('message', event => {
@@ -643,6 +704,8 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'updateSummary':
+          playNotificationSound();
+
           let content = message.summary || '';
           if (message.suggestions) {
             content += '<div class="suggestions-block">💡 <strong>Details:</strong> ' + message.suggestions + '</div>';
