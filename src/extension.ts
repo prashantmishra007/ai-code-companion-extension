@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
 
-// Live cloud backend URL hosted on Render
 const API_BASE = 'https://ai-copilot-backend-oskz.onrender.com';
 
 export function activate(context: vscode.ExtensionContext) {
-  const provider = new AICopilotViewProvider(context.extensionUri);
+  const provider = new AICopilotChatProvider(context.extensionUri);
 
   const viewIds = [
     'ai-assistant.view',
@@ -26,234 +25,91 @@ export function activate(context: vscode.ExtensionContext) {
     } catch {}
   });
 
-  // 1. Generate Fresh Code Handler
-  const executeGenerateCode = async (userPrompt?: string) => {
+  // Editor me code insert karne ka handler
+  provider.onInsertCode(async (code: string) => {
     const editor = vscode.window.activeTextEditor;
-    const language = editor ? editor.document.languageId : 'javascript';
-
-    let promptText = userPrompt;
-    if (!promptText) {
-      promptText = await vscode.window.showInputBox({
-        title: 'Generate Fresh Code with Gemini',
-        prompt: 'Describe what you want Gemini to write (e.g., "Create a debounce function in TypeScript")',
-        placeHolder: 'Type your requirements here...'
+    if (editor) {
+      await editor.edit(editBuilder => {
+        editBuilder.insert(editor.selection.active, code + '\n');
       });
+      vscode.window.showInformationMessage('Code inserted into editor!');
+    } else {
+      const doc = await vscode.workspace.openTextDocument({
+        content: code,
+        language: 'javascript'
+      });
+      await vscode.window.showTextDocument(doc);
     }
+  });
 
-    if (!promptText || promptText.trim() === '') {
-      return;
-    }
-
-    provider.setLoading(true, 'Generating custom code with Gemini...');
-
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Gemini is generating your code...',
-        cancellable: false
-      },
-      async () => {
-        try {
-          const response = await fetch(`${API_BASE}/api/generate-code`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: promptText,
-              language: language
-            })
-          });
-
-          if (!response.ok) {
-            const errData = (await response.json().catch(() => ({}))) as { error?: string };
-            throw new Error(errData.error || `HTTP ${response.status}`);
-          }
-
-          const result = (await response.json()) as { code?: string; explanation?: string };
-
-          if (result.code) {
-            if (editor) {
-              await editor.edit(editBuilder => {
-                editBuilder.insert(editor.selection.active, result.code + '\n');
-              });
-            } else {
-              const doc = await vscode.workspace.openTextDocument({
-                content: result.code,
-                language: language
-              });
-              await vscode.window.showTextDocument(doc);
-            }
-
-            provider.updateSummary(
-              `Generated Code:\n\n${result.code}`,
-              result.explanation || 'Code successfully generated and placed into your editor.'
-            );
-            vscode.window.showInformationMessage('Code generated and inserted successfully!');
-          } else {
-            throw new Error('No code received from the generator.');
-          }
-        } catch (err: any) {
-          vscode.window.showErrorMessage(`Generation failed: ${err.message || err}`);
-          provider.updateSummary(`Generation error: ${err.message || err}`);
-        } finally {
-          provider.setLoading(false);
-        }
-      }
-    );
-  };
-
-  // 2. Fix & Refactor Handler
+  // Quick Action: Fix selection
   const executeFixCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      vscode.window.showWarningMessage('Please open a file to fix or refactor code.');
+      vscode.window.showWarningMessage('Please open a file to fix code.');
       return;
     }
-
     const selection = editor.selection;
-    const text = selection.isEmpty
-      ? editor.document.getText()
-      : editor.document.getText(selection);
-
-    if (!text || text.trim() === '') {
+    const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+    if (!text.trim()) {
       vscode.window.showWarningMessage('Please select some code to fix.');
       return;
     }
 
-    provider.setLoading(true, 'Refactoring code with Gemini...');
-
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Gemini is refactoring your code...',
-        cancellable: false
-      },
-      async () => {
-        try {
-          const response = await fetch(`${API_BASE}/api/fix-code`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              code: text,
-              language: editor.document.languageId
-            })
-          });
-
-          if (!response.ok) {
-            const errData = (await response.json().catch(() => ({}))) as { error?: string };
-            throw new Error(errData.error || `HTTP ${response.status}`);
-          }
-
-          const result = (await response.json()) as { fixedCode?: string; explanation?: string };
-
-          if (result.fixedCode) {
-            await editor.edit(editBuilder => {
-              if (selection.isEmpty) {
-                const fullRange = new vscode.Range(
-                  editor.document.positionAt(0),
-                  editor.document.positionAt(editor.document.getText().length)
-                );
-                editBuilder.replace(fullRange, result.fixedCode!);
-              } else {
-                editBuilder.replace(selection, result.fixedCode!);
-              }
-            });
-
-            provider.updateSummary(
-              'Code refactored and updated successfully.',
-              result.explanation || 'Optimized code syntax and structure.'
-            );
-
-            vscode.window.showInformationMessage(
-              `Fixed! ${result.explanation || 'Code optimized and repaired successfully.'}`
-            );
-          } else {
-            throw new Error('No refactored code returned.');
-          }
-        } catch (err: any) {
-          vscode.window.showErrorMessage(`AI Fix failed: ${err.message || err}`);
-        } finally {
-          provider.setLoading(false);
-        }
-      }
-    );
+    provider.sendUserMessageToChat('Fix and refactor this code:\n```\n' + text + '\n```');
   };
 
-  // 3. Summarize Handler
-  const executeSummarizeCode = async () => {
+  // Quick Action: Explain selection
+  const executeExplainCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      vscode.window.showWarningMessage('Please open a file to summarize.');
+      vscode.window.showWarningMessage('Please open a file to explain code.');
       return;
     }
-
     const selection = editor.selection;
-    const text = selection.isEmpty
-      ? editor.document.getText()
-      : editor.document.getText(selection);
-
-    if (!text || text.trim() === '') {
-      vscode.window.showWarningMessage('No code to summarize.');
+    const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+    if (!text.trim()) {
+      vscode.window.showWarningMessage('Please select some code to explain.');
       return;
     }
 
-    provider.setLoading(true, 'Generating code summary...');
-
-    try {
-      const response = await fetch(`${API_BASE}/api/summarize-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: text,
-          language: editor.document.languageId
-        })
-      });
-
-      if (!response.ok) {
-        const errData = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(errData.error || `HTTP ${response.status}`);
-      }
-
-      const result = (await response.json()) as { summary?: string; suggestions?: string };
-      provider.updateSummary(result.summary || 'No summary generated.', result.suggestions);
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`AI Summarize failed: ${err.message || err}`);
-      provider.updateSummary(`Summary error: ${err.message || err}`);
-    } finally {
-      provider.setLoading(false);
-    }
+    provider.sendUserMessageToChat('Explain this code step-by-step and suggest optimizations:\n```\n' + text + '\n```');
   };
 
-  // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('ai-companion.generateCode', () => executeGenerateCode()),
     vscode.commands.registerCommand('ai-companion.fixCode', executeFixCode),
-    vscode.commands.registerCommand('ai-companion.summarizeCode', executeSummarizeCode)
+    vscode.commands.registerCommand('ai-companion.explainCode', executeExplainCode)
   );
 
-  // Link Webview button actions
-  provider.onGenerateRequested(prompt => executeGenerateCode(prompt));
   provider.onFixRequested(executeFixCode);
-  provider.onSummarizeRequested(executeSummarizeCode);
+  provider.onExplainRequested(executeExplainCode);
 }
 
-class AICopilotViewProvider implements vscode.WebviewViewProvider {
+class AICopilotChatProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
-  private _generateCallback?: (prompt: string) => Promise<void>;
+  private _history: Array<{ role: 'user' | 'model'; text: string }> = [];
+  private _insertCallback?: (code: string) => Promise<void>;
   private _fixCallback?: () => Promise<void>;
-  private _summarizeCallback?: () => Promise<void>;
+  private _explainCallback?: () => Promise<void>;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
-  public onGenerateRequested(fn: (prompt: string) => Promise<void>) {
-    this._generateCallback = fn;
+  public onInsertCode(fn: (code: string) => Promise<void>) {
+    this._insertCallback = fn;
   }
 
   public onFixRequested(fn: () => Promise<void>) {
     this._fixCallback = fn;
   }
 
-  public onSummarizeRequested(fn: () => Promise<void>) {
-    this._summarizeCallback = fn;
+  public onExplainRequested(fn: () => Promise<void>) {
+    this._explainCallback = fn;
+  }
+
+  public sendUserMessageToChat(text: string) {
+    if (this._view) {
+      this._view.webview.postMessage({ type: 'triggerChat', text: text });
+    }
   }
 
   public resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -268,455 +124,659 @@ class AICopilotViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async data => {
       switch (data.type) {
-        case 'generateCode':
-          if (this._generateCallback) await this._generateCallback(data.prompt);
+        case 'sendMessage':
+          await this._handleChatMessage(data.text);
           break;
-        case 'fixCode':
-          if (this._fixCallback) await this._fixCallback();
+        case 'insertCode':
+          if (this._insertCallback) {
+            const cb = this._insertCallback;
+            await cb(data.code);
+          }
           break;
-        case 'summarizeCode':
-          if (this._summarizeCallback) await this._summarizeCallback();
+        case 'clearHistory':
+          this._history = [];
+          break;
+        case 'triggerFix':
+          if (this._fixCallback) {
+            const cb = this._fixCallback;
+            await cb();
+          }
+          break;
+        case 'triggerExplain':
+          if (this._explainCallback) {
+            const cb = this._explainCallback;
+            await cb();
+          }
           break;
       }
     });
   }
 
-  public updateSummary(summary: string, suggestions?: string) {
-    if (this._view) {
-      this._view.webview.postMessage({
-        type: 'updateSummary',
-        summary,
-        suggestions
-      });
-    }
-  }
+  private async _handleChatMessage(userMessage: string) {
+    if (!this._view) return;
 
-  public setLoading(isLoading: boolean, statusText: string = 'Processing...') {
-    if (this._view) {
-      this._view.webview.postMessage({
-        type: 'setLoading',
-        isLoading,
-        statusText
+    this._view.webview.postMessage({ type: 'setLoading', isLoading: true });
+
+    try {
+      const response = await fetch(API_BASE + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage,
+          history: this._history
+        })
       });
+
+      if (!response.ok) {
+        const errData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errData.error || ('HTTP ' + response.status));
+      }
+
+      const result = (await response.json()) as { reply: string };
+
+      this._history.push({ role: 'user', text: userMessage });
+      this._history.push({ role: 'model', text: result.reply });
+
+      this._view.webview.postMessage({
+        type: 'botResponse',
+        reply: result.reply
+      });
+    } catch (err: any) {
+      this._view.webview.postMessage({
+        type: 'botError',
+        error: err.message || 'Failed to get response.'
+      });
+    } finally {
+      this._view.webview.postMessage({ type: 'setLoading', isLoading: false });
     }
   }
 
   private _getHtmlForWebview(): string {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    :root {
-      --bg-color: var(--vscode-sideBar-background, #181a1f);
-      --text-color: var(--vscode-sideBar-foreground, #dcdcdc);
-      --primary-gemini: linear-gradient(135deg, #4285f4 0%, #9b72cf 50%, #d96570 100%);
-      --glass-bg: rgba(255, 255, 255, 0.04);
-      --glass-border: rgba(255, 255, 255, 0.08);
-      --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-      font-size: 13px;
-      margin: 0;
-      padding: 14px;
-      user-select: none;
-      overflow-x: hidden;
-    }
-
-    .header-card {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      background: linear-gradient(145deg, rgba(32, 38, 52, 0.7), rgba(18, 21, 28, 0.8));
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--glass-border);
-      border-radius: 12px;
-      box-shadow: var(--card-shadow);
-      margin-bottom: 16px;
-    }
-
-    .avatar-icon {
-      width: 38px;
-      height: 38px;
-      border-radius: 10px;
-      background: var(--primary-gemini);
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 15px;
-      box-shadow: 0 4px 15px rgba(155, 114, 207, 0.45);
-      flex-shrink: 0;
-    }
-
-    .header-info { display: flex; flex-direction: column; gap: 3px; }
-    .title { font-weight: 700; font-size: 13px; letter-spacing: 0.3px; color: #ffffff; }
-
-    .badge-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 10px;
-      font-weight: 600;
-      color: #4ec9b0;
-    }
-
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background-color: #4ec9b0;
-      box-shadow: 0 0 8px #4ec9b0;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
-    }
-
-    .section-title {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      margin-bottom: 8px;
-      color: #8b949e;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .prompt-box-wrapper {
-      position: relative;
-      margin-bottom: 16px;
-      background: linear-gradient(145deg, rgba(25, 29, 39, 0.9), rgba(15, 17, 23, 0.95));
-      border-radius: 12px;
-      padding: 10px;
-      border: 1px solid var(--glass-border);
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), inset 0 2px 4px rgba(0, 0, 0, 0.5);
-      transition: all 0.3s ease;
-    }
-
-    .prompt-box-wrapper:focus-within {
-      border-color: #9b72cf;
-      box-shadow: 0 0 20px rgba(155, 114, 207, 0.35), inset 0 1px 3px rgba(0, 0, 0, 0.3);
-    }
-
-    textarea {
-      width: 100%;
-      background: transparent;
-      border: none;
-      color: #ffffff;
-      padding: 4px;
-      font-family: inherit;
-      font-size: 12.5px;
-      resize: vertical;
-      min-height: 65px;
-      outline: none;
-      line-height: 1.45;
-    }
-
-    textarea::placeholder {
-      color: rgba(255, 255, 255, 0.35);
-      font-style: italic;
-    }
-
-    .btn-3d {
-      border: none;
-      border-radius: 9px;
-      padding: 10px 14px;
-      font-size: 12.5px;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      width: 100%;
-      position: relative;
-      transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.15s ease;
-      user-select: none;
-    }
-
-    .btn-generate {
-      background: linear-gradient(135deg, #1f883d 0%, #106027 100%);
-      color: #ffffff;
-      box-shadow: 0 4px 12px rgba(31, 136, 61, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -2px 0 rgba(0, 0, 0, 0.3);
-      margin-top: 8px;
-    }
-
-    .btn-generate:hover:not(:disabled) {
-      filter: brightness(1.15);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(31, 136, 61, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    }
-
-    .btn-3d:active:not(:disabled) {
-      transform: translateY(2px) !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
-    }
-
-    .btn-group {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-
-    .btn-action {
-      background: linear-gradient(145deg, #1f6feb 0%, #0d419d 100%);
-      color: #ffffff;
-      box-shadow: 0 4px 12px rgba(31, 111, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
-    }
-
-    .btn-action:hover:not(:disabled) {
-      filter: brightness(1.12);
-      transform: translateY(-1px);
-    }
-
-    .btn-secondary {
-      background: linear-gradient(145deg, #2d333b 0%, #22272e 100%);
-      color: #cdd9e5;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    }
-
-    .btn-secondary:hover:not(:disabled) {
-      background: linear-gradient(145deg, #373e47 0%, #282e37 100%);
-      transform: translateY(-1px);
-    }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      filter: grayscale(0.5);
-    }
-
-    .summary-card {
-      background: linear-gradient(145deg, rgba(20, 24, 33, 0.8), rgba(12, 14, 20, 0.9));
-      border: 1px solid var(--glass-border);
-      border-radius: 12px;
-      padding: 14px;
-      font-size: 12px;
-      line-height: 1.55;
-      max-height: 290px;
-      overflow-y: auto;
-      user-select: text;
-      word-break: break-word;
-      white-space: pre-wrap;
-      box-shadow: var(--card-shadow);
-    }
-
-    .empty-state {
-      opacity: 0.55;
-      font-style: italic;
-      text-align: center;
-      padding: 12px 4px;
-    }
-
-    .gemini-shimmer-box {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      padding: 6px 0;
-    }
-
-    .shimmer-line {
-      height: 12px;
-      border-radius: 6px;
-      background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0.05) 0%,
-        rgba(66, 133, 244, 0.25) 25%,
-        rgba(155, 114, 207, 0.35) 50%,
-        rgba(217, 101, 112, 0.25) 75%,
-        rgba(255, 255, 255, 0.05) 100%
-      );
-      background-size: 300% 100%;
-      animation: waveShimmer 2s infinite ease-in-out;
-    }
-
-    .shimmer-line.short { width: 65%; }
-    .shimmer-line.medium { width: 85%; }
-
-    @keyframes waveShimmer {
-      0% { background-position: 100% 0; }
-      100% { background-position: -100% 0; }
-    }
-
-    .suggestions-block {
-      margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      background: rgba(220, 220, 170, 0.08);
-      border-left: 3px solid #dcdcaa;
-      color: #e5e5b8;
-    }
-  </style>
-</head>
-<body>
-  <div class="header-card">
-    <div class="avatar-icon">✨</div>
-    <div class="header-info">
-      <span class="title">AI Companion</span>
-      <span class="badge-status">
-        <span class="status-dot"></span>
-        Gemini 24/7 Engine
-      </span>
-    </div>
-  </div>
-
-  <div class="section-title">💬 Prompt AI for Code</div>
-  <div class="prompt-box-wrapper">
-    <textarea id="promptInput" placeholder="Jaise: Write a function to check palindrome in JS, ya Hinglish me type karein..."></textarea>
-    <button id="generateBtn" class="btn-3d btn-generate">
-      <span>✨</span>
-      <span>Generate Fresh Code</span>
-    </button>
-  </div>
-
-  <div class="btn-group">
-    <button id="fixBtn" class="btn-3d btn-action">
-      <span>⚡</span>
-      <span>Fix & Refactor (Ctrl+Alt+F)</span>
-    </button>
-    <button id="summarizeBtn" class="btn-3d btn-secondary">
-      <span>📑</span>
-      <span>Summarize Selection</span>
-    </button>
-  </div>
-
-  <div class="section-title">📊 Live Output</div>
-  <div class="summary-card" id="summaryContainer">
-    <div class="empty-state">Upar prompt likhein ya code select karke Fix / Summarize par click karein.</div>
-  </div>
-
-  <script>
-    const vscode = acquireVsCodeApi();
-    const generateBtn = document.getElementById('generateBtn');
-    const fixBtn = document.getElementById('fixBtn');
-    const summarizeBtn = document.getElementById('summarizeBtn');
-    const promptInput = document.getElementById('promptInput');
-    const summaryContainer = document.getElementById('summaryContainer');
-
-    // Shared AudioContext for browser autoplay unlocking
-    let audioCtx = null;
-
-    function unlockAudioContext() {
-      try {
-        const AudioClass = window.AudioContext || window.webkitAudioContext;
-        if (!audioCtx && AudioClass) {
-          audioCtx = new AudioClass();
-        }
-        if (audioCtx && audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
-      } catch (e) {
-        console.warn('Unlock audio failed', e);
-      }
-    }
-
-    // Play clean two-tone chime bell sound
-    function playNotificationSound() {
-      try {
-        unlockAudioContext();
-        if (!audioCtx) return;
-
-        const now = audioCtx.currentTime;
-
-        // Note 1: Clear Ding (880Hz - A5)
-        const osc1 = audioCtx.createOscillator();
-        const gain1 = audioCtx.createGain();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(880, now);
-        gain1.gain.setValueAtTime(0.25, now);
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-        osc1.connect(gain1);
-        gain1.connect(audioCtx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.28);
-
-        // Note 2: Harmonious Chime (1320Hz - E6)
-        const osc2 = audioCtx.createOscillator();
-        const gain2 = audioCtx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(1320, now + 0.12);
-        gain2.gain.setValueAtTime(0.28, now + 0.12);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-        osc2.connect(gain2);
-        gain2.connect(audioCtx.destination);
-        osc2.start(now + 0.12);
-        osc2.stop(now + 0.45);
-      } catch (err) {
-        console.warn('Audio playback error:', err);
-      }
-    }
-
-    // Unlock audio instantly when user clicks any action
-    generateBtn.addEventListener('click', () => {
-      unlockAudioContext();
-      const text = promptInput.value.trim();
-      if (text) {
-        vscode.postMessage({ type: 'generateCode', prompt: text });
-      }
-    });
-
-    fixBtn.addEventListener('click', () => {
-      unlockAudioContext();
-      vscode.postMessage({ type: 'fixCode' });
-    });
-
-    summarizeBtn.addEventListener('click', () => {
-      unlockAudioContext();
-      vscode.postMessage({ type: 'summarizeCode' });
-    });
-
-    promptInput.addEventListener('focus', () => {
-      unlockAudioContext();
-    });
-
-    window.addEventListener('message', event => {
-      const message = event.data;
-      switch (message.type) {
-        case 'setLoading':
-          generateBtn.disabled = message.isLoading;
-          fixBtn.disabled = message.isLoading;
-          summarizeBtn.disabled = message.isLoading;
-          if (message.isLoading) {
-            summaryContainer.innerHTML =
-              '<div class="gemini-shimmer-box">' +
-                '<span style="font-size: 11px; opacity: 0.85; font-weight: 600;">✨ ' + (message.statusText || 'Gemini is processing...') + '</span>' +
-                '<div class="shimmer-line"></div>' +
-                '<div class="shimmer-line medium"></div>' +
-                '<div class="shimmer-line short"></div>' +
-              '</div>';
-          }
-          break;
-
-        case 'updateSummary':
-          playNotificationSound();
-
-          let content = message.summary || '';
-          if (message.suggestions) {
-            content += '<div class="suggestions-block">💡 <strong>Details:</strong> ' + message.suggestions + '</div>';
-          }
-          summaryContainer.innerHTML = content;
-          break;
-      }
-    });
-  </script>
-</body>
-</html>`;
+    return '<!DOCTYPE html>' +
+'<html lang="en">' +
+'<head>' +
+'  <meta charset="UTF-8">' +
+'  <meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+'  <style>' +
+'    :root {' +
+'      --bg-color: #f0f4f9;' +
+'      --card-bg: #ffffff;' +
+'      --text-color: #1f2937;' +
+'      --subtext-color: #5f6368;' +
+'      --primary-gemini: linear-gradient(135deg, #1a73e8 0%, #8ab4f8 50%, #7b1fa2 100%);' +
+'      --border-color: #e2e8f0;' +
+'      --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);' +
+'    }' +
+'    * { box-sizing: border-box; }' +
+'    body {' +
+'      background-color: var(--bg-color);' +
+'      color: var(--text-color);' +
+'      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);' +
+'      font-size: 13px;' +
+'      margin: 0;' +
+'      padding: 0;' +
+'      display: flex;' +
+'      flex-direction: column;' +
+'      height: 100vh;' +
+'      overflow: hidden;' +
+'    }' +
+'    /* Clean Gemini Header */' +
+'    .chat-header {' +
+'      padding: 12px 14px;' +
+'      background: #ffffff;' +
+'      border-bottom: 1px solid var(--border-color);' +
+'      display: flex;' +
+'      align-items: center;' +
+'      justify-content: space-between;' +
+'      flex-shrink: 0;' +
+'      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);' +
+'    }' +
+'    .header-left {' +
+'      display: flex;' +
+'      align-items: center;' +
+'      gap: 10px;' +
+'    }' +
+'    .avatar-icon {' +
+'      width: 32px;' +
+'      height: 32px;' +
+'      border-radius: 50%;' +
+'      background: var(--primary-gemini);' +
+'      color: #ffffff;' +
+'      display: flex;' +
+'      align-items: center;' +
+'      justify-content: center;' +
+'      font-weight: 800;' +
+'      font-size: 14px;' +
+'      box-shadow: 0 2px 8px rgba(26, 115, 232, 0.3);' +
+'    }' +
+'    .header-title {' +
+'      font-weight: 700;' +
+'      font-size: 13px;' +
+'      color: #1e1f20;' +
+'      display: block;' +
+'    }' +
+'    .status-text {' +
+'      font-size: 10.5px;' +
+'      color: #137333;' +
+'      display: flex;' +
+'      align-items: center;' +
+'      gap: 5px;' +
+'      font-weight: 600;' +
+'    }' +
+'    .status-dot {' +
+'      width: 6px;' +
+'      height: 6px;' +
+'      border-radius: 50%;' +
+'      background: #1e8e3e;' +
+'      box-shadow: 0 0 6px #1e8e3e;' +
+'      animation: pulse 2s infinite;' +
+'    }' +
+'    @keyframes pulse {' +
+'      0%, 100% { opacity: 1; transform: scale(1); }' +
+'      50% { opacity: 0.4; transform: scale(0.8); }' +
+'    }' +
+'    .clear-btn {' +
+'      background: #fce8e6;' +
+'      border: 1px solid #fad2cf;' +
+'      color: #c5221f;' +
+'      border-radius: 20px;' +
+'      padding: 4px 10px;' +
+'      font-size: 11px;' +
+'      font-weight: 600;' +
+'      cursor: pointer;' +
+'      transition: all 0.2s ease;' +
+'    }' +
+'    .clear-btn:hover {' +
+'      background: #fad2cf;' +
+'    }' +
+'    /* Quick Actions Chips */' +
+'    .quick-actions-bar {' +
+'      display: grid;' +
+'      grid-template-columns: 1fr 1fr;' +
+'      gap: 8px;' +
+'      padding: 10px 12px;' +
+'      background: #f8fafd;' +
+'      border-bottom: 1px solid var(--border-color);' +
+'      flex-shrink: 0;' +
+'    }' +
+'    .btn-action-3d {' +
+'      border: none;' +
+'      border-radius: 8px;' +
+'      padding: 8px 10px;' +
+'      font-size: 12px;' +
+'      font-weight: 700;' +
+'      cursor: pointer;' +
+'      display: flex;' +
+'      align-items: center;' +
+'      justify-content: center;' +
+'      gap: 6px;' +
+'      color: #ffffff;' +
+'      transition: transform 0.1s ease, filter 0.15s ease, box-shadow 0.15s ease;' +
+'      user-select: none;' +
+'    }' +
+'    .btn-fix {' +
+'      background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);' +
+'      box-shadow: 0 3px 10px rgba(26, 115, 232, 0.35);' +
+'    }' +
+'    .btn-explain {' +
+'      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);' +
+'      box-shadow: 0 3px 10px rgba(13, 148, 136, 0.35);' +
+'    }' +
+'    .btn-action-3d:hover {' +
+'      filter: brightness(1.1);' +
+'      transform: translateY(-1px);' +
+'    }' +
+'    .btn-action-3d:active {' +
+'      transform: translateY(1px);' +
+'    }' +
+'    /* Chat Messages Viewport */' +
+'    .chat-messages {' +
+'      flex: 1;' +
+'      overflow-y: auto;' +
+'      padding: 16px 12px;' +
+'      display: flex;' +
+'      flex-direction: column;' +
+'      gap: 14px;' +
+'    }' +
+'    .message-row {' +
+'      display: flex;' +
+'      flex-direction: column;' +
+'      max-width: 96%;' +
+'    }' +
+'    .message-row.user {' +
+'      align-self: flex-end;' +
+'      align-items: flex-end;' +
+'    }' +
+'    .message-row.bot {' +
+'      align-self: flex-start;' +
+'      align-items: flex-start;' +
+'      width: 100%;' +
+'    }' +
+'    .bubble {' +
+'      padding: 11px 15px;' +
+'      border-radius: 14px;' +
+'      line-height: 1.55;' +
+'      font-size: 13px;' +
+'      word-break: break-word;' +
+'      user-select: text;' +
+'    }' +
+'    .bubble.user-msg {' +
+'      background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);' +
+'      color: #ffffff;' +
+'      border-bottom-right-radius: 3px;' +
+'      box-shadow: 0 3px 12px rgba(26, 115, 232, 0.25);' +
+'      font-weight: 500;' +
+'    }' +
+'    .bubble.bot-msg {' +
+'      background: #ffffff;' +
+'      border: 1px solid var(--border-color);' +
+'      border-bottom-left-radius: 3px;' +
+'      box-shadow: var(--card-shadow);' +
+'      color: #1f2937;' +
+'      width: 100%;' +
+'    }' +
+'    /* Sleek Dark Code Container on White Background */' +
+'    .code-container {' +
+'      margin: 10px 0;' +
+'      border-radius: 10px;' +
+'      overflow: hidden;' +
+'      border: 1px solid #1e293b;' +
+'      background: #111827;' +
+'      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);' +
+'    }' +
+'    .code-header {' +
+'      display: flex;' +
+'      justify-content: space-between;' +
+'      align-items: center;' +
+'      padding: 6px 12px;' +
+'      background: #1f2937;' +
+'      border-bottom: 1px solid #374151;' +
+'      font-size: 11px;' +
+'      color: #93c5fd;' +
+'      font-weight: 700;' +
+'      text-transform: uppercase;' +
+'    }' +
+'    .code-header-actions {' +
+'      display: flex;' +
+'      gap: 6px;' +
+'    }' +
+'    .code-btn {' +
+'      border: none;' +
+'      padding: 4px 9px;' +
+'      border-radius: 6px;' +
+'      font-size: 11px;' +
+'      font-weight: 700;' +
+'      cursor: pointer;' +
+'      transition: all 0.15s ease;' +
+'    }' +
+'    .code-btn-copy {' +
+'      background: rgba(255, 255, 255, 0.12);' +
+'      color: #f3f4f6;' +
+'    }' +
+'    .code-btn-copy:hover {' +
+'      background: rgba(255, 255, 255, 0.22);' +
+'    }' +
+'    .code-btn-insert {' +
+'      background: #10b981;' +
+'      color: #ffffff;' +
+'      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);' +
+'    }' +
+'    .code-btn-insert:hover {' +
+'      background: #059669;' +
+'      transform: scale(1.02);' +
+'    }' +
+'    pre {' +
+'      margin: 0;' +
+'      padding: 12px;' +
+'      overflow-x: auto;' +
+'      font-family: var(--vscode-editor-font-family, Consolas, "Fira Code", monospace);' +
+'      font-size: 12.5px;' +
+'      color: #e5e7eb;' +
+'      line-height: 1.5;' +
+'    }' +
+'    /* Shimmer Animation */' +
+'    .shimmer-box {' +
+'      display: flex;' +
+'      flex-direction: column;' +
+'      gap: 9px;' +
+'      padding: 8px 0;' +
+'      width: 100%;' +
+'      min-width: 220px;' +
+'    }' +
+'    .shimmer-line {' +
+'      height: 12px;' +
+'      border-radius: 6px;' +
+'      background: linear-gradient(' +
+'        90deg,' +
+'        #e2e8f0 0%,' +
+'        #dbeafe 25%,' +
+'        #f3e8ff 50%,' +
+'        #fee2e2 75%,' +
+'        #e2e8f0 100%' +
+'      );' +
+'      background-size: 300% 100%;' +
+'      animation: waveShimmer 2s infinite ease-in-out;' +
+'    }' +
+'    .shimmer-line.short { width: 55%; }' +
+'    .shimmer-line.medium { width: 80%; }' +
+'    @keyframes waveShimmer {' +
+'      0% { background-position: 100% 0; }' +
+'      100% { background-position: -100% 0; }' +
+'    }' +
+'    /* Google Gemini Style Input Bar */' +
+'    .chat-input-bar {' +
+'      padding: 12px 14px;' +
+'      background: #ffffff;' +
+'      border-top: 1px solid var(--border-color);' +
+'      display: flex;' +
+'      flex-direction: column;' +
+'      gap: 8px;' +
+'      flex-shrink: 0;' +
+'    }' +
+'    .input-wrapper {' +
+'      position: relative;' +
+'      background: #f0f4f9;' +
+'      border-radius: 20px;' +
+'      border: 1px solid #d3e3fd;' +
+'      padding: 8px 14px;' +
+'      display: flex;' +
+'      align-items: flex-end;' +
+'      gap: 10px;' +
+'      transition: all 0.25s ease;' +
+'    }' +
+'    .input-wrapper:focus-within {' +
+'      background: #ffffff;' +
+'      border-color: #1a73e8;' +
+'      box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15);' +
+'    }' +
+'    textarea {' +
+'      flex: 1;' +
+'      background: transparent;' +
+'      border: none;' +
+'      color: #1f2937;' +
+'      font-family: inherit;' +
+'      font-size: 13px;' +
+'      resize: none;' +
+'      height: 30px;' +
+'      max-height: 120px;' +
+'      outline: none;' +
+'      line-height: 1.45;' +
+'      padding: 4px 0;' +
+'    }' +
+'    textarea::placeholder { color: #80868b; }' +
+'    .send-btn {' +
+'      width: 32px;' +
+'      height: 32px;' +
+'      border-radius: 50%;' +
+'      border: none;' +
+'      background: #1a73e8;' +
+'      color: #ffffff;' +
+'      display: flex;' +
+'      align-items: center;' +
+'      justify-content: center;' +
+'      font-size: 14px;' +
+'      cursor: pointer;' +
+'      transition: all 0.15s ease;' +
+'      flex-shrink: 0;' +
+'    }' +
+'    .send-btn:hover:not(:disabled) {' +
+'      background: #1557b0;' +
+'      transform: scale(1.05);' +
+'    }' +
+'    .send-btn:disabled {' +
+'      opacity: 0.4;' +
+'      cursor: not-allowed;' +
+'    }' +
+'  </style>' +
+'</head>' +
+'<body>' +
+'  <div class="chat-header">' +
+'    <div class="header-left">' +
+'      <div class="avatar-icon">✨</div>' +
+'      <div>' +
+'        <span class="header-title">Gemini Assistant</span>' +
+'        <span class="status-text"><span class="status-dot"></span>Active • Gemini 3.8 Flash</span>' +
+'      </div>' +
+'    </div>' +
+'    <button class="clear-btn" id="clearBtn">Clear</button>' +
+'  </div>' +
+'  <div class="quick-actions-bar">' +
+'    <button class="btn-action-3d btn-fix" id="chipFix"><span>⚡</span> Fix & Refactor</button>' +
+'    <button class="btn-action-3d btn-explain" id="chipExplain"><span>📑</span> Explain Code</button>' +
+'  </div>' +
+'  <div class="chat-messages" id="messagesContainer">' +
+'    <div class="message-row bot">' +
+'      <div class="bubble bot-msg">' +
+'        ✨ <strong>Namaste!</strong> Main aapka Gemini AI coding companion hoon.<br/>' +
+'        Koi bhi question poochhein ya code select karke <strong>Fix</strong> aur <strong>Explain</strong> karein.' +
+'      </div>' +
+'    </div>' +
+'  </div>' +
+'  <div class="chat-input-bar">' +
+'    <div class="input-wrapper">' +
+'      <textarea id="chatInput" placeholder="Ask Gemini anything in English or Hinglish..."></textarea>' +
+'      <button class="send-btn" id="sendBtn" title="Send message">➤</button>' +
+'    </div>' +
+'  </div>' +
+'  <script>' +
+'    const vscode = acquireVsCodeApi();' +
+'    const messagesContainer = document.getElementById("messagesContainer");' +
+'    const chatInput = document.getElementById("chatInput");' +
+'    const sendBtn = document.getElementById("sendBtn");' +
+'    const clearBtn = document.getElementById("clearBtn");' +
+'    const chipFix = document.getElementById("chipFix");' +
+'    const chipExplain = document.getElementById("chipExplain");' +
+'    let audioCtx = null;' +
+'    function unlockAudio() {' +
+'      try {' +
+'        const AudioClass = window.AudioContext || window.webkitAudioContext;' +
+'        if (!audioCtx && AudioClass) { audioCtx = new AudioClass(); }' +
+'        if (audioCtx && audioCtx.state === "suspended") { audioCtx.resume(); }' +
+'      } catch (e) {}' +
+'    }' +
+'    function playChime() {' +
+'      try {' +
+'        unlockAudio();' +
+'        if (!audioCtx) return;' +
+'        const now = audioCtx.currentTime;' +
+'        const osc1 = audioCtx.createOscillator();' +
+'        const gain1 = audioCtx.createGain();' +
+'        osc1.type = "sine";' +
+'        osc1.frequency.setValueAtTime(880, now);' +
+'        gain1.gain.setValueAtTime(0.3, now);' +
+'        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.28);' +
+'        osc1.connect(gain1);' +
+'        gain1.connect(audioCtx.destination);' +
+'        osc1.start(now);' +
+'        osc1.stop(now + 0.28);' +
+'        const osc2 = audioCtx.createOscillator();' +
+'        const gain2 = audioCtx.createGain();' +
+'        osc2.type = "sine";' +
+'        osc2.frequency.setValueAtTime(1320, now + 0.12);' +
+'        gain2.gain.setValueAtTime(0.32, now + 0.12);' +
+'        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);' +
+'        osc2.connect(gain2);' +
+'        gain2.connect(audioCtx.destination);' +
+'        osc2.start(now + 0.12);' +
+'        osc2.stop(now + 0.45);' +
+'      } catch (e) {}' +
+'    }' +
+'    function scrollToBottom() {' +
+'      messagesContainer.scrollTop = messagesContainer.scrollHeight;' +
+'    }' +
+'    function parseMarkdownToElements(rawText) {' +
+'      const wrapper = document.createElement("div");' +
+'      const segments = rawText.split("```");' +
+'      for (let i = 0; i < segments.length; i++) {' +
+'        const segment = segments[i];' +
+'        if (i % 2 === 1) {' +
+'          const firstNewline = segment.indexOf("\\n");' +
+'          let lang = "code";' +
+'          let codeText = segment;' +
+'          if (firstNewline !== -1) {' +
+'            lang = segment.substring(0, firstNewline).trim() || "code";' +
+'            codeText = segment.substring(firstNewline + 1);' +
+'          }' +
+'          const codeBox = document.createElement("div");' +
+'          codeBox.className = "code-container";' +
+'          const header = document.createElement("div");' +
+'          header.className = "code-header";' +
+'          const langSpan = document.createElement("span");' +
+'          langSpan.textContent = "⚡ " + lang;' +
+'          header.appendChild(langSpan);' +
+'          const actionDiv = document.createElement("div");' +
+'          actionDiv.className = "code-header-actions";' +
+'          const copyBtn = document.createElement("button");' +
+'          copyBtn.className = "code-btn code-btn-copy";' +
+'          copyBtn.textContent = "📋 Copy";' +
+'          (function(c, btn) {' +
+'            btn.onclick = function() {' +
+'              navigator.clipboard.writeText(c);' +
+'              btn.textContent = "✓ Copied";' +
+'              setTimeout(function() { btn.textContent = "📋 Copy"; }, 2000);' +
+'            };' +
+'          })(codeText, copyBtn);' +
+'          actionDiv.appendChild(copyBtn);' +
+'          const insertBtn = document.createElement("button");' +
+'          insertBtn.className = "code-btn code-btn-insert";' +
+'          insertBtn.textContent = "📥 Insert into Editor";' +
+'          (function(c) {' +
+'            insertBtn.onclick = function() {' +
+'              vscode.postMessage({ type: "insertCode", code: c });' +
+'            };' +
+'          })(codeText);' +
+'          actionDiv.appendChild(insertBtn);' +
+'          header.appendChild(actionDiv);' +
+'          codeBox.appendChild(header);' +
+'          const pre = document.createElement("pre");' +
+'          const codeEl = document.createElement("code");' +
+'          codeEl.textContent = codeText;' +
+'          pre.appendChild(codeEl);' +
+'          codeBox.appendChild(pre);' +
+'          wrapper.appendChild(codeBox);' +
+'        } else {' +
+'          if (segment.trim() !== "") {' +
+'            const p = document.createElement("div");' +
+'            p.style.whiteSpace = "pre-wrap";' +
+'            p.style.margin = "6px 0";' +
+'            p.textContent = segment;' +
+'            wrapper.appendChild(p);' +
+'          }' +
+'        }' +
+'      }' +
+'      return wrapper;' +
+'    }' +
+'    function appendUserMessage(text) {' +
+'      const row = document.createElement("div");' +
+'      row.className = "message-row user";' +
+'      const bubble = document.createElement("div");' +
+'      bubble.className = "bubble user-msg";' +
+'      bubble.textContent = text;' +
+'      row.appendChild(bubble);' +
+'      messagesContainer.appendChild(row);' +
+'      scrollToBottom();' +
+'    }' +
+'    function appendLoadingShimmer() {' +
+'      const row = document.createElement("div");' +
+'      row.className = "message-row bot";' +
+'      row.id = "loadingRow";' +
+'      row.innerHTML = ' +
+'        \'<div class="bubble bot-msg">\' +' +
+'        \'  <span style="font-size:11px;font-weight:700;color:#1a73e8;">✨ Gemini is thinking & generating...</span>\' +' +
+'        \'  <div class="shimmer-box">\' +' +
+'        \'    <div class="shimmer-line"></div>\' +' +
+'        \'    <div class="shimmer-line medium"></div>\' +' +
+'        \'    <div class="shimmer-line short"></div>\' +' +
+'        \'  </div>\' +' +
+'        \'</div>\';' +
+'      messagesContainer.appendChild(row);' +
+'      scrollToBottom();' +
+'    }' +
+'    function removeLoadingShimmer() {' +
+'      const loading = document.getElementById("loadingRow");' +
+'      if (loading) loading.remove();' +
+'    }' +
+'    function appendBotMessage(reply) {' +
+'      removeLoadingShimmer();' +
+'      const row = document.createElement("div");' +
+'      row.className = "message-row bot";' +
+'      const bubble = document.createElement("div");' +
+'      bubble.className = "bubble bot-msg";' +
+'      bubble.appendChild(parseMarkdownToElements(reply));' +
+'      row.appendChild(bubble);' +
+'      messagesContainer.appendChild(row);' +
+'      playChime();' +
+'      scrollToBottom();' +
+'    }' +
+'    function sendMessage(text) {' +
+'      const trimmed = text.trim();' +
+'      if (!trimmed) return;' +
+'      unlockAudio();' +
+'      appendUserMessage(trimmed);' +
+'      appendLoadingShimmer();' +
+'      vscode.postMessage({ type: "sendMessage", text: trimmed });' +
+'      chatInput.value = "";' +
+'      chatInput.style.height = "30px";' +
+'    }' +
+'    sendBtn.addEventListener("click", () => {' +
+'      sendMessage(chatInput.value);' +
+'    });' +
+'    chatInput.addEventListener("keydown", e => {' +
+'      if (e.key === "Enter" && !e.shiftKey) {' +
+'        e.preventDefault();' +
+'        sendMessage(chatInput.value);' +
+'      }' +
+'    });' +
+'    chatInput.addEventListener("input", () => {' +
+'      chatInput.style.height = "auto";' +
+'      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";' +
+'    });' +
+'    chatInput.addEventListener("focus", () => { unlockAudio(); });' +
+'    clearBtn.addEventListener("click", () => {' +
+'      messagesContainer.innerHTML = ' +
+'        \'<div class="message-row bot">\' +' +
+'        \'  <div class="bubble bot-msg">Conversation cleared. Ready for your questions!</div>\' +' +
+'        \'</div>\';' +
+'      vscode.postMessage({ type: "clearHistory" });' +
+'    });' +
+'    chipFix.addEventListener("click", () => {' +
+'      unlockAudio();' +
+'      vscode.postMessage({ type: "triggerFix" });' +
+'    });' +
+'    chipExplain.addEventListener("click", () => {' +
+'      unlockAudio();' +
+'      vscode.postMessage({ type: "triggerExplain" });' +
+'    });' +
+'    window.addEventListener("message", event => {' +
+'      const message = event.data;' +
+'      switch (message.type) { ' +
+'        case "setLoading":' +
+'          sendBtn.disabled = message.isLoading;' +
+'          break;' +
+'        case "botResponse":' +
+'          appendBotMessage(message.reply);' +
+'          break;' +
+'        case "botError":' +
+'          removeLoadingShimmer();' +
+'          const errRow = document.createElement("div");' +
+'          errRow.className = "message-row bot";' +
+'          const errBubble = document.createElement("div");' +
+'          errBubble.className = "bubble bot-msg";' +
+'          errBubble.style.color = "#dc2626";' +
+'          errBubble.style.border = "1px solid #fecaca";' +
+'          errBubble.textContent = "⚠️ " + (message.error || "Failed to process request.");' +
+'          errRow.appendChild(errBubble);' +
+'          messagesContainer.appendChild(errRow);' +
+'          scrollToBottom();' +
+'          break;' +
+'        case "triggerChat":' +
+'          sendMessage(message.text);' +
+'          break;' +
+'      }' +
+'    });' +
+'  </script>' +
+'</body>' +
+'</html>';
   }
 }
 

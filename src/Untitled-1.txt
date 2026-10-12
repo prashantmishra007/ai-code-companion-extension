@@ -1,90 +1,200 @@
 /**
- * Removes duplicate elements from an array and returns a sorted array.
- * 
- * @param {Array} arr - The input array (e.g., numbers or strings)
- * @returns {Array} - A new array with unique elements sorted in ascending order
+ * @file CppTemplateGenerator.js
+ * @description A production-ready utility to generate, customize, and save C++ starter templates.
  */
-function removeDuplicatesAndSort(arr) {
-  if (!Array.isArray(arr)) {
-    throw new TypeError('Input must be a valid array');
-  }
 
-  return Array.from(new Set(arr)).sort((a, b) => {
-    if (typeof a === 'number' && typeof b === 'number') {
-      return a - b;
+const fs = require('fs').promises;
+const path = require('path');
+
+class CppTemplateGenerator {
+  /**
+   * Map of available C++ templates
+   */
+  static TEMPLATES = {
+    helloWorld: `/**
+ * Program: Hello World
+ * Author: {{AUTHOR}}
+ * Date: {{DATE}}
+ */
+#include <iostream>
+
+int main() {
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}
+`,
+
+    competitiveProgramming: `/**
+ * Program: Competitive Programming Starter
+ * Author: {{AUTHOR}}
+ * Date: {{DATE}}
+ */
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <string>
+
+using namespace std;
+
+void solve() {
+    // Add your logic here
+}
+
+int main() {
+    // Optimize standard I/O operations
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+
+    int t = 1;
+    // cin >> t; // Uncomment if test cases are provided
+    while (t--) {
+        solve();
     }
-    return String(a).localeCompare(String(b));
-  });
+
+    return 0;
 }
+`,
 
-/**
- * Determines if two strings are anagrams of each other.
- * An anagram is a word or phrase formed by rearranging the letters of a different,
- * typically using all the original letters exactly once, ignoring spaces and case.
- *
- * @param {string} str1 - The first string to compare.
- * @param {string} str2 - The second string to compare.
- * @returns {boolean} - Returns true if they are anagrams, false otherwise.
+    oopExample: `/**
+ * Program: Object-Oriented Programming Template
+ * Author: {{AUTHOR}}
+ * Date: {{DATE}}
  */
-function areAnagrams(str1, str2) {
-  if (typeof str1 !== 'string' || typeof str2 !== 'string') {
-    return false;
-  }
+#include <iostream>
+#include <string>
 
-  const cleanString = (str) => str.replace(/[^\w]/g, '').toLowerCase();
-  const cleanedStr1 = cleanString(str1);
-  const cleanedStr2 = cleanString(str2);
+class {{CLASS_NAME}} {
+private:
+    std::string name;
+    int id;
 
-  if (cleanedStr1.length !== cleanedStr2.length) {
-    return false;
-  }
+public:
+    {{CLASS_NAME}}(std::string objName, int objId) : name(objName), id(objId) {}
 
-  const charMap = {};
-  for (const char of cleanedStr1) {
-    charMap[char] = (charMap[char] || 0) + 1;
-  }
-
-  for (const char of cleanedStr2) {
-    if (!charMap[char]) {
-      return false;
+    void displayInfo() const {
+        std::cout << "Name: " << name << ", ID: " << id << std::endl;
     }
-    charMap[char]--;
+};
+
+int main() {
+    {{CLASS_NAME}} obj("SampleObject", 101);
+    obj.displayInfo();
+    return 0;
+}
+`
+  };
+
+  /**
+   * Helper method to replace template variables/placeholders.
+   * @private
+   * @param {string} templateStr 
+   * @param {Object.<string, string>} variables 
+   * @returns {string}
+   */
+  static _render(templateStr, variables = {}) {
+    const defaults = {
+      AUTHOR: 'Developer',
+      DATE: new Date().toISOString().split('T')[0],
+      CLASS_NAME: 'Person',
+      ...variables
+    };
+
+    return Object.entries(defaults).reduce((acc, [key, value]) => {
+      const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      return acc.replace(regex, value);
+    }, templateStr);
   }
 
-  return true;
-}
-
-/**
- * Reverses a given string, with support for Unicode characters (e.g., emojis).
- *
- * @param {string} str - The string to reverse.
- * @returns {string} The reversed string.
- * @throws {TypeError} If the input is not a string.
- */
-function reverseString(str) {
-  if (typeof str !== 'string') {
-    throw new TypeError('Input must be a string');
+  /**
+   * Register a custom C++ template dynamically.
+   * @param {string} name - Unique identifier for the template
+   * @param {string} templateContent - Multi-line C++ template string
+   */
+  static registerTemplate(name, templateContent) {
+    if (!name || typeof name !== 'string') {
+      throw new Error('Template name must be a valid string.');
+    }
+    if (!templateContent || typeof templateContent !== 'string') {
+      throw new Error('Template content must be a valid string.');
+    }
+    this.TEMPLATES[name] = templateContent;
   }
 
-  return [...str].reverse().join('');
+  /**
+   * Get a C++ template by type with dynamic variables rendered.
+   * @param {string} [type='helloWorld']
+   * @param {Object.<string, string>} [variables={}]
+   * @returns {string}
+   */
+  static getTemplate(type = 'helloWorld', variables = {}) {
+    const template = this.TEMPLATES[type];
+    if (!template) {
+      throw new Error(
+        `Template '${type}' not found. Available templates: ${Object.keys(this.TEMPLATES).join(', ')}`
+      );
+    }
+    return this._render(template, variables);
+  }
+
+  /**
+   * Saves the generated C++ code to a specified file.
+   * @param {string} destinationPath - Path where the file should be saved.
+   * @param {string} [templateType='helloWorld']
+   * @param {Object} [options={}]
+   * @param {Object.<string, string>} [options.variables={}] - Placeholders replacement map
+   * @param {boolean} [options.overwrite=true] - Whether to overwrite if the file exists
+   * @returns {Promise<string>} Absolute path to the created file.
+   */
+  static async saveToFile(destinationPath, templateType = 'helloWorld', options = {}) {
+    const { variables = {}, overwrite = true } = options;
+
+    if (!destinationPath || typeof destinationPath !== 'string') {
+      throw new Error('A valid destination path is required.');
+    }
+
+    const code = this.getTemplate(templateType, variables);
+    const resolvedPath = path.resolve(destinationPath);
+
+    if (!overwrite) {
+      try {
+        await fs.access(resolvedPath);
+        throw new Error(`File already exists at '${resolvedPath}' and overwrite is set to false.`);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error; // Rethrow if it's not a "file doesn't exist" error
+      }
+    }
+
+    // Ensure directory exists
+    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+    await fs.writeFile(resolvedPath, code, 'utf-8');
+
+    return resolvedPath;
+  }
 }
 
-/**
- * Returns a personalized greeting.
- *
- * @param {string} name - The name to greet.
- * @returns {string} Greeting message.
- */
-function greetUser(name) {
-  return `Hello, ${name}! Welcome to JavaScript programming.`;
-}
+// Usage Example
+(async () => {
+  try {
+    console.log('--- Generating Hello World Template ---');
+    const code = CppTemplateGenerator.getTemplate('helloWorld', {
+      AUTHOR: 'Rahul Sharma'
+    });
+    console.log(code);
 
-/**
- * Returns the square of a given number.
- *
- * @param {number} number - The number to square.
- * @returns {number} The square of the input number.
- */
-function calculateSquare(number) {
-  return number ** 2;
-}
+    console.log('--- Registering & Generating Custom Template ---');
+    CppTemplateGenerator.registerTemplate('simpleAdd', `#include <iostream>\nint main() { std::cout << 5 + 10; }`);
+    console.log(CppTemplateGenerator.getTemplate('simpleAdd'));
+
+    // Example of saving to a file:
+    // const savedPath = await CppTemplateGenerator.saveToFile('./main.cpp', 'oopExample', {
+    //   variables: { AUTHOR: 'Rahul Sharma', CLASS_NAME: 'Student' },
+    //   overwrite: true
+    // });
+    // console.log(`C++ file successfully created at: ${savedPath}`);
+  } catch (error) {
+    console.error('Error:', error.message);
+  }
+})();
+
+module.exports = CppTemplateGenerator;
+
