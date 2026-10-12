@@ -5,6 +5,7 @@ const API_BASE = 'https://ai-copilot-backend-oskz.onrender.com';
 export function activate(context: vscode.ExtensionContext) {
   const provider = new AICopilotChatProvider(context.extensionUri);
 
+  // 1. Sidebar Webview View Registration
   const viewIds = [
     'ai-assistant.view',
     'ai-assistant-sidebar',
@@ -25,7 +26,23 @@ export function activate(context: vscode.ExtensionContext) {
     } catch {}
   });
 
-  // Editor me code insert karne ka handler
+  // 2. Status Bar Badge (Gemini Active Indicator)
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.text = '$(sparkle) Gemini: Active';
+  statusBarItem.tooltip = 'Gemini Inline AI Completions Active (Press Tab to Accept)';
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
+
+  // 3. Inline Ghost Text Provider (Copilot Style)
+  const inlineCompletionProvider = new GeminiInlineCompletionProvider();
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider(
+      { pattern: '**' },
+      inlineCompletionProvider
+    )
+  );
+
+  // 4. Editor me code insert karne ka handler
   provider.onInsertCode(async (code: string) => {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
@@ -42,7 +59,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Quick Action: Fix selection
+  // 5. Quick Action: Fix selection
   const executeFixCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -59,7 +76,7 @@ export function activate(context: vscode.ExtensionContext) {
     provider.sendUserMessageToChat('Fix and refactor this code:\n```\n' + text + '\n```');
   };
 
-  // Quick Action: Explain selection
+  // 6. Quick Action: Explain selection
   const executeExplainCode = async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -85,6 +102,81 @@ export function activate(context: vscode.ExtensionContext) {
   provider.onExplainRequested(executeExplainCode);
 }
 
+/**
+ * Inline Completion Provider for Copilot-style ghost text
+ */
+class GeminiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+  async provideInlineCompletionItems(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    context: vscode.InlineCompletionContext,
+    token: vscode.CancellationToken
+  ): Promise<vscode.InlineCompletionItem[] | undefined> {
+    if (token.isCancellationRequested) return undefined;
+
+    const lineText = document.lineAt(position.line).text;
+    const linePrefix = lineText.substring(0, position.character);
+
+    // Skip if line prefix is empty or only whitespace
+    if (!linePrefix.trim()) {
+      return undefined;
+    }
+
+    // Capture surrounding context (last 25 lines)
+    const startLine = Math.max(0, position.line - 25);
+    const prefixRange = new vscode.Range(startLine, 0, position.line, position.character);
+    const prefixCode = document.getText(prefixRange);
+
+    // Debounce: Wait 450ms to let user stop typing before requesting API
+    await new Promise(resolve => setTimeout(resolve, 450));
+    if (token.isCancellationRequested) return undefined;
+
+    try {
+      const prompt = `You are a high-speed inline code autocomplete engine like GitHub Copilot.
+Given this ${document.languageId} code context, complete the code immediately following the cursor.
+Return ONLY the raw completion code text to append.
+DO NOT use markdown code blocks (\`\`\`), DO NOT add explanations, and DO NOT repeat the prefix text.
+
+Code context before cursor:
+${prefixCode}`;
+
+      const response = await fetch(API_BASE + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: prompt,
+          history: []
+        })
+      });
+
+      if (!response.ok || token.isCancellationRequested) return undefined;
+
+      const data = (await response.json()) as { reply?: string };
+      let completion = data.reply || '';
+
+      // Strip any accidental markdown formatting
+      completion = completion
+        .replace(/^```[a-zA-Z]*\n?/, '')
+        .replace(/\n?```$/, '')
+        .trimEnd();
+
+      if (!completion || token.isCancellationRequested) return undefined;
+
+      const item = new vscode.InlineCompletionItem(
+        completion,
+        new vscode.Range(position, position)
+      );
+
+      return [item];
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Webview Chat View Provider (Gemini White Aesthetic)
+ */
 class AICopilotChatProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _history: Array<{ role: 'user' | 'model'; text: string }> = [];
@@ -220,7 +312,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '      height: 100vh;' +
 '      overflow: hidden;' +
 '    }' +
-'    /* Clean Gemini Header */' +
 '    .chat-header {' +
 '      padding: 12px 14px;' +
 '      background: #ffffff;' +
@@ -289,7 +380,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '    .clear-btn:hover {' +
 '      background: #fad2cf;' +
 '    }' +
-'    /* Quick Actions Chips */' +
 '    .quick-actions-bar {' +
 '      display: grid;' +
 '      grid-template-columns: 1fr 1fr;' +
@@ -329,7 +419,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '    .btn-action-3d:active {' +
 '      transform: translateY(1px);' +
 '    }' +
-'    /* Chat Messages Viewport */' +
 '    .chat-messages {' +
 '      flex: 1;' +
 '      overflow-y: auto;' +
@@ -375,7 +464,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '      color: #1f2937;' +
 '      width: 100%;' +
 '    }' +
-'    /* Sleek Dark Code Container on White Background */' +
 '    .code-container {' +
 '      margin: 10px 0;' +
 '      border-radius: 10px;' +
@@ -434,7 +522,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '      color: #e5e7eb;' +
 '      line-height: 1.5;' +
 '    }' +
-'    /* Shimmer Animation */' +
 '    .shimmer-box {' +
 '      display: flex;' +
 '      flex-direction: column;' +
@@ -463,7 +550,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '      0% { background-position: 100% 0; }' +
 '      100% { background-position: -100% 0; }' +
 '    }' +
-'    /* Google Gemini Style Input Bar */' +
 '    .chat-input-bar {' +
 '      padding: 12px 14px;' +
 '      background: #ffffff;' +

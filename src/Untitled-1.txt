@@ -198,3 +198,6 @@ int main() {
 
 module.exports = CppTemplateGenerator;
 
+function calculateSum(a, b) {
+  return a + b;
+}
