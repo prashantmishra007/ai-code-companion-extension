@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 
 const API_BASE = 'https://ai-copilot-backend-oskz.onrender.com';
 
+// Global State for Inline Completions Toggle
+let isCompletionsEnabled = true;
+let statusBarItem: vscode.StatusBarItem;
+
 export function activate(context: vscode.ExtensionContext) {
   const provider = new AICopilotChatProvider(context.extensionUri);
 
@@ -26,14 +30,14 @@ export function activate(context: vscode.ExtensionContext) {
     } catch {}
   });
 
-  // 2. Status Bar Badge (Gemini Active Indicator)
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = '$(sparkle) Gemini: Active';
-  statusBarItem.tooltip = 'Gemini Inline AI Completions Active (Press Tab to Accept)';
+  // 2. Status Bar Badge (Clickable Toggle)
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.command = 'ai-companion.toggleCompletions';
+  updateStatusBar();
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // 3. Inline Ghost Text Provider (Copilot Style)
+  // 3. Inline Ghost Text & Comment-to-Code Provider
   const inlineCompletionProvider = new GeminiInlineCompletionProvider();
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
@@ -42,7 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // 4. Editor me code insert karne ka handler
+  // 4. Editor me code insert karne ka callback
   provider.onInsertCode(async (code: string) => {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
@@ -59,38 +63,124 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // 5. Quick Action: Fix selection
+  // 5. Feature: Toggle Hotkey (Alt + \)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-companion.toggleCompletions', () => {
+      isCompletionsEnabled = !isCompletionsEnabled;
+      updateStatusBar();
+      const statusText = isCompletionsEnabled ? 'Enabled (Active)' : 'Disabled (Paused)';
+      vscode.window.showInformationMessage(`Gemini Inline Suggestions: ${statusText}`);
+    })
+  );
+
+  // 6. Feature: Right-Click -> Generate Unit Tests
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-companion.generateTests', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const selection = editor.selection;
+      const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+      if (!text.trim()) {
+        vscode.window.showWarningMessage('Please select code to generate tests.');
+        return;
+      }
+
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: '✨ Gemini: Generating Unit Tests...',
+          cancellable: false
+        },
+        async () => {
+          try {
+            const prompt = `Generate exhaustive unit test cases (including standard tests, edge cases, and error cases) for this ${editor.document.languageId} code snippet:\n\n${text}\n\nReturn ONLY executable test code with assertions (e.g. Jest, Mocha, or standard test framework). Do not include unnecessary conversational filler outside markdown.`;
+
+            const res = await fetch(API_BASE + '/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: prompt, history: [] })
+            });
+
+            const data = (await res.json()) as { reply?: string };
+            let testCode = data.reply || '';
+            // Clean markdown
+            testCode = testCode.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '');
+
+            // Open alongside in a new editor tab
+            const doc = await vscode.workspace.openTextDocument({
+              content: testCode,
+              language: editor.document.languageId
+            });
+            await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+          } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to generate tests: ${err.message}`);
+          }
+        }
+      );
+    })
+  );
+
+  // 7. Feature: Right-Click -> Add JSDoc / Documentation Comments
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ai-companion.addDocstring', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const selection = editor.selection;
+      const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+      if (!text.trim()) {
+        vscode.window.showWarningMessage('Please select a function to document.');
+        return;
+      }
+
+      vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: '✨ Gemini: Generating Documentation...',
+          cancellable: false
+        },
+        async () => {
+          try {
+            const prompt = `Write professional, standardized documentation comments (e.g. JSDoc/Docstring) for this ${editor.document.languageId} function:\n\n${text}\n\nReturn strictly ONLY the doc comment block (e.g. starting with /** and ending with */). Do not repeat the function code and do not add conversational text.`;
+
+            const res = await fetch(API_BASE + '/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: prompt, history: [] })
+            });
+
+            const data = (await res.json()) as { reply?: string };
+            let docComment = data.reply || '';
+            docComment = docComment.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+
+            await editor.edit(editBuilder => {
+              editBuilder.insert(selection.start, docComment + '\n');
+            });
+            vscode.window.showInformationMessage('Documentation comments added!');
+          } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to add doc comments: ${err.message}`);
+          }
+        }
+      );
+    })
+  );
+
+  // Quick Action Handlers for Sidebar
   const executeFixCode = async () => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage('Please open a file to fix code.');
-      return;
-    }
+    if (!editor) return;
     const selection = editor.selection;
     const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
-    if (!text.trim()) {
-      vscode.window.showWarningMessage('Please select some code to fix.');
-      return;
-    }
-
+    if (!text.trim()) return;
     provider.sendUserMessageToChat('Fix and refactor this code:\n```\n' + text + '\n```');
   };
 
-  // 6. Quick Action: Explain selection
   const executeExplainCode = async () => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage('Please open a file to explain code.');
-      return;
-    }
+    if (!editor) return;
     const selection = editor.selection;
     const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
-    if (!text.trim()) {
-      vscode.window.showWarningMessage('Please select some code to explain.');
-      return;
-    }
-
-    provider.sendUserMessageToChat('Explain this code step-by-step and suggest optimizations:\n```\n' + text + '\n```');
+    if (!text.trim()) return;
+    provider.sendUserMessageToChat('Explain this code step-by-step:\n```\n' + text + '\n```');
   };
 
   context.subscriptions.push(
@@ -102,8 +192,18 @@ export function activate(context: vscode.ExtensionContext) {
   provider.onExplainRequested(executeExplainCode);
 }
 
+function updateStatusBar() {
+  if (isCompletionsEnabled) {
+    statusBarItem.text = '$(sparkle) Gemini: Active';
+    statusBarItem.tooltip = 'Gemini Inline Completions: ON (Click or press Alt+\\ to toggle)';
+  } else {
+    statusBarItem.text = '$(circle-slash) Gemini: Paused';
+    statusBarItem.tooltip = 'Gemini Inline Completions: OFF (Click or press Alt+\\ to toggle)';
+  }
+}
+
 /**
- * Inline Completion Provider for Copilot-style ghost text
+ * Inline Completion Provider with Comment-to-Code Detection
  */
 class GeminiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   async provideInlineCompletionItems(
@@ -112,33 +212,50 @@ class GeminiInlineCompletionProvider implements vscode.InlineCompletionItemProvi
     context: vscode.InlineCompletionContext,
     token: vscode.CancellationToken
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
-    if (token.isCancellationRequested) return undefined;
-
-    const lineText = document.lineAt(position.line).text;
-    const linePrefix = lineText.substring(0, position.character);
-
-    // Skip if line prefix is empty or only whitespace
-    if (!linePrefix.trim()) {
+    // Agar user ne hotkey se suggestions disable kiya hai to skip karein
+    if (!isCompletionsEnabled || token.isCancellationRequested) {
       return undefined;
     }
 
-    // Capture surrounding context (last 25 lines)
+    const currentLineText = document.lineAt(position.line).text;
+    const linePrefix = currentLineText.substring(0, position.character);
+
+    const prevLineText = position.line > 0 ? document.lineAt(position.line - 1).text.trim() : '';
+    const isCommentOnPrevLine = prevLineText.startsWith('//') || prevLineText.startsWith('#') || prevLineText.startsWith('/*');
+
+    // Skip agar blank line ho aur pichhli line comment na ho
+    if (!linePrefix.trim() && !isCommentOnPrevLine) {
+      return undefined;
+    }
+
     const startLine = Math.max(0, position.line - 25);
     const prefixRange = new vscode.Range(startLine, 0, position.line, position.character);
     const prefixCode = document.getText(prefixRange);
 
-    // Debounce: Wait 450ms to let user stop typing before requesting API
-    await new Promise(resolve => setTimeout(resolve, 450));
-    if (token.isCancellationRequested) return undefined;
+    // Debounce: 400ms delay
+    await new Promise(resolve => setTimeout(resolve, 400));
+    if (token.isCancellationRequested || !isCompletionsEnabled) return undefined;
 
     try {
-      const prompt = `You are a high-speed inline code autocomplete engine like GitHub Copilot.
+      let prompt = '';
+
+      if (isCommentOnPrevLine && !linePrefix.trim()) {
+        // Comment-to-Code mode
+        prompt = `You are a high-speed code generation engine like GitHub Copilot.
+The developer wrote this specification comment: "${prevLineText}" in a ${document.languageId} file.
+Generate the complete and concise implementation code for this comment.
+Return ONLY raw runnable code to place directly under the comment.
+DO NOT use markdown code blocks (\`\`\`), DO NOT add explanations, and DO NOT repeat the comment.`;
+      } else {
+        // Standard Autocomplete mode
+        prompt = `You are a high-speed inline code autocomplete engine like GitHub Copilot.
 Given this ${document.languageId} code context, complete the code immediately following the cursor.
 Return ONLY the raw completion code text to append.
 DO NOT use markdown code blocks (\`\`\`), DO NOT add explanations, and DO NOT repeat the prefix text.
 
 Code context before cursor:
 ${prefixCode}`;
+      }
 
       const response = await fetch(API_BASE + '/api/chat', {
         method: 'POST',
@@ -149,12 +266,11 @@ ${prefixCode}`;
         })
       });
 
-      if (!response.ok || token.isCancellationRequested) return undefined;
+      if (!response.ok || token.isCancellationRequested || !isCompletionsEnabled) return undefined;
 
       const data = (await response.json()) as { reply?: string };
       let completion = data.reply || '';
 
-      // Strip any accidental markdown formatting
       completion = completion
         .replace(/^```[a-zA-Z]*\n?/, '')
         .replace(/\n?```$/, '')
@@ -786,6 +902,7 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 '      removeLoadingShimmer();' +
 '      const row = document.createElement("div");' +
 '      row.className = "message-row bot";' +
+'      row.id = "botRow";' +
 '      const bubble = document.createElement("div");' +
 '      bubble.className = "bubble bot-msg";' +
 '      bubble.appendChild(parseMarkdownToElements(reply));' +

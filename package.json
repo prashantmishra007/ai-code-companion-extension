@@ -1,24 +1,81 @@
 {
   "name": "dev-refactor-ai",
-  "displayName": "AI Code Fixer & Refactor",
-  "description": "AI code fixer, refactor, and summarizer engine",
+  "displayName": "AI Copilot Companion",
+  "description": "AI Coding Assistant and Copilot powered by Gemini 3.8 Flash",
   "version": "0.0.1",
+  "publisher": "prashant-kumar",
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Programming Languages",
-    "Other"
+    "Snippets",
+    "Machine Learning"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "ai-companion.toggleCompletions",
+        "title": "Gemini: Toggle Inline Suggestions"
+      },
+      {
+        "command": "ai-companion.generateTests",
+        "title": "✨ Gemini: Generate Unit Tests"
+      },
+      {
+        "command": "ai-companion.addDocstring",
+        "title": "✨ Gemini: Add Documentation / JSDoc"
+      },
+      {
+        "command": "ai-companion.fixCode",
+        "title": "✨ Gemini: Fix & Refactor Selection"
+      },
+      {
+        "command": "ai-companion.explainCode",
+        "title": "✨ Gemini: Explain Selected Code"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ai-companion.toggleCompletions",
+        "key": "alt+\\",
+        "mac": "alt+\\"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ai-companion.generateTests",
+          "when": "editorHasSelection",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "ai-companion.addDocstring",
+          "when": "editorHasSelection",
+          "group": "7_modification@2"
+        },
+        {
+          "command": "ai-companion.fixCode",
+          "when": "editorHasSelection",
+          "group": "7_modification@3"
+        },
+        {
+          "command": "ai-companion.explainCode",
+          "when": "editorHasSelection",
+          "group": "7_modification@4"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
           "id": "ai-assistant-sidebar",
           "title": "AI Assistant",
-          "icon": "media/icon.svg"
+          "icon": "media/gemini-icon.svg"
         }
       ]
     },
@@ -27,31 +84,8 @@
         {
           "type": "webview",
           "id": "ai-assistant.view",
-          "name": "AI Code Companion",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "dev-refactor-ai.fixCode",
-        "title": "AI: Fix & Refactor Selected Code"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "dev-refactor-ai.fixCode",
-        "key": "ctrl+alt+f",
-        "mac": "cmd+alt+f",
-        "when": "editorHasSelection"
-      }
-    ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "dev-refactor-ai.fixCode",
-          "when": "editorHasSelection",
-          "group": "modification"
+          "name": "AI Copilot Companion",
+          "icon": "media/gemini-icon.svg"
         }
       ]
     }
@@ -61,24 +95,14 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "lint": "eslint src"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
-    "@types/vscode": "^1.140.0",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0",
-    "eslint": "^10.5.0",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.1"
-  },
-  "overrides": {
-    "diff": "^8.0.4",
-    "serialize-javascript": "^7.0.6"
-  },
-  "dependencies": {
-    "axios": "^1.20.0"
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
+    "@typescript-eslint/parser": "^7.14.1",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
   }
 }
