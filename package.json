@@ -1,8 +1,8 @@
 {
   "name": "dev-refactor-ai",
   "displayName": "AI Copilot Companion",
-  "description": "AI Coding Assistant and Copilot powered by Gemini 3.8 Flash",
-  "version": "0.0.1",
+  "description": "Commercial-grade AI Coding Assistant powered by Gemini 3.8 Flash",
+  "version": "0.0.2",
   "publisher": "prashant-kumar",
   "engines": {
     "vscode": "^1.90.0"
@@ -10,14 +10,47 @@
   "categories": [
     "Programming Languages",
     "Snippets",
-    "Machine Learning"
+    "Machine Learning",
+    "SCM Providers"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AI Copilot Companion",
+      "properties": {
+        "aiCompanion.debounceDelay": {
+          "type": "number",
+          "default": 400,
+          "description": "Inline autocomplete debounce delay in milliseconds."
+        },
+        "aiCompanion.securityScanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan files for hardcoded secrets and API keys on save."
+        }
+      }
+    },
     "commands": [
+      {
+        "command": "ai-companion.inlineChat",
+        "title": "✨ Gemini: Inline Edit / Chat (Cursor Style)"
+      },
+      {
+        "command": "ai-companion.generateCommitMessage",
+        "title": "✨ Gemini: Generate AI Git Commit Message",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "ai-companion.fixTerminalError",
+        "title": "✨ Gemini: Fix Terminal Error"
+      },
+      {
+        "command": "ai-companion.generateBoilerplate",
+        "title": "✨ Gemini: Generate Boilerplate / Scaffold File"
+      },
       {
         "command": "ai-companion.toggleCompletions",
         "title": "Gemini: Toggle Inline Suggestions"
@@ -41,6 +74,12 @@
     ],
     "keybindings": [
       {
+        "command": "ai-companion.inlineChat",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus"
+      },
+      {
         "command": "ai-companion.toggleCompletions",
         "key": "alt+\\",
         "mac": "alt+\\"
@@ -48,6 +87,10 @@
     ],
     "menus": {
       "editor/context": [
+        {
+          "command": "ai-companion.inlineChat",
+          "group": "7_modification@0"
+        },
         {
           "command": "ai-companion.generateTests",
           "when": "editorHasSelection",
@@ -68,6 +111,12 @@
           "when": "editorHasSelection",
           "group": "7_modification@4"
         }
+      ],
+      "scm/title": [
+        {
+          "command": "ai-companion.generateCommitMessage",
+          "group": "navigation"
+        }
       ]
     },
     "viewsContainers": {
@@ -75,7 +124,7 @@
         {
           "id": "ai-assistant-sidebar",
           "title": "AI Assistant",
-          "icon": "media/gemini-icon.svg"
+          "icon": "media/icon.svg"
         }
       ]
     },
@@ -85,7 +134,7 @@
           "type": "webview",
           "id": "ai-assistant.view",
           "name": "AI Copilot Companion",
-          "icon": "media/gemini-icon.svg"
+          "icon": "media/icon.svg"
         }
       ]
     }
@@ -93,16 +142,11 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src"
+    "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
     "@types/node": "^20.x",
     "@types/vscode": "^1.90.0",
-    "@typescript-eslint/eslint-plugin": "^7.14.1",
-    "@typescript-eslint/parser": "^7.14.1",
-    "eslint": "^8.57.0",
     "typescript": "^5.4.5"
   }
 }
