@@ -2,7 +2,7 @@
   "name": "dev-refactor-ai",
   "displayName": "AI Copilot Companion",
   "description": "Commercial-grade AI Coding Assistant powered by Gemini 3.8 Flash",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "prashant-kumar",
   "engines": {
     "vscode": "^1.90.0"

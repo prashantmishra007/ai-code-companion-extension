@@ -6,8 +6,18 @@ const API_BASE = 'https://ai-copilot-backend-oskz.onrender.com';
 let isCompletionsEnabled = true;
 let statusBarItem: vscode.StatusBarItem;
 let diagnosticCollection: vscode.DiagnosticCollection;
+let lastActiveEditor: vscode.TextEditor | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
+  lastActiveEditor = vscode.window.activeTextEditor;
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+      if (editor) {
+        lastActiveEditor = editor;
+      }
+    })
+  );
+
   const provider = new AICopilotChatProvider(context.extensionUri);
 
   // 1. Sidebar Webview View Registration
@@ -31,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
     } catch {}
   });
 
-  // 2. Status Bar Badge (Clickable Toggle)
+  // 2. Status Bar Badge
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'ai-companion.toggleCompletions';
   updateStatusBar();
@@ -60,12 +70,11 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // 5. Smart Hover Tooltip Provider (Explaining regex & complex blocks)
+  // 5. Smart Hover Tooltip Provider
   context.subscriptions.push(
     vscode.languages.registerHoverProvider({ pattern: '**' }, {
       provideHover(document, position) {
         const lineText = document.lineAt(position.line).text;
-        // Check for regex literals
         const regexMatch = lineText.match(/\/(.*?)\/[gimsuy]*/);
         if (regexMatch && position.character >= lineText.indexOf(regexMatch[0]) && position.character <= lineText.indexOf(regexMatch[0]) + regexMatch[0].length) {
           const contents = new vscode.MarkdownString();
@@ -80,10 +89,10 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // 6. Feature: Floating Inline Chat (`Ctrl + I` - Cursor Style with Safe Diff Option)
+  // 6. Floating Inline Chat (`Ctrl + I` Cursor Style)
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.inlineChat', async () => {
-      const editor = vscode.window.activeTextEditor;
+      const editor = vscode.window.activeTextEditor || lastActiveEditor;
       if (!editor) return;
 
       const selection = editor.selection;
@@ -153,7 +162,7 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
     })
   );
 
-  // 7. Feature: AI Git Commit Message Generator
+  // 7. AI Git Commit Message Generator
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.generateCommitMessage', async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -172,7 +181,6 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
           exec('git diff --cached', { cwd: workspaceFolder }, async (err, stdout) => {
             let diffContent = stdout;
             if (!diffContent || !diffContent.trim()) {
-              // Try unstaged if nothing staged
               exec('git diff', { cwd: workspaceFolder }, async (_err2, stdout2) => {
                 diffContent = stdout2;
                 if (!diffContent || !diffContent.trim()) {
@@ -190,7 +198,7 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
     })
   );
 
-  // 8. Feature: Terminal Error Auto-Fixer
+  // 8. Terminal Error Auto-Fixer
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.fixTerminalError', async () => {
       const errorText = await vscode.window.showInputBox({
@@ -201,11 +209,12 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
 
       if (!errorText || !errorText.trim()) return;
 
+      vscode.window.showInformationMessage('✨ Gemini Assistant: Diagnosing terminal error...');
       provider.sendUserMessageToChat(`Diagnose this terminal error and provide the exact fix:\n\`\`\`\n${errorText}\n\`\`\``);
     })
   );
 
-  // 9. Feature: Automated Project Boilerplate Generator
+  // 9. Boilerplate Generator
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.generateBoilerplate', async () => {
       const choice = await vscode.window.showQuickPick(
@@ -251,7 +260,7 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
     })
   );
 
-  // 10. Existing Features: Hotkey Toggle, Unit Tests, JSDoc, Fix & Explain
+  // 10. Helper Commands
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.toggleCompletions', () => {
       isCompletionsEnabled = !isCompletionsEnabled;
@@ -263,7 +272,7 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
 
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.generateTests', async () => {
-      const editor = vscode.window.activeTextEditor;
+      const editor = vscode.window.activeTextEditor || lastActiveEditor;
       if (!editor) return;
       const selection = editor.selection;
       const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
@@ -293,7 +302,7 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
 
   context.subscriptions.push(
     vscode.commands.registerCommand('ai-companion.addDocstring', async () => {
-      const editor = vscode.window.activeTextEditor;
+      const editor = vscode.window.activeTextEditor || lastActiveEditor;
       if (!editor) return;
       const selection = editor.selection;
       const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
@@ -323,21 +332,26 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
     })
   );
 
+  // Fix Code: Strictly 1 Single Clean Code Block
   const executeFixCode = async () => {
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.activeTextEditor || lastActiveEditor;
     if (!editor) return;
     const selection = editor.selection;
     const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
     if (!text.trim()) return;
-    provider.sendUserMessageToChat('Fix and refactor this code:\n```\n' + text + '\n```');
+    vscode.window.showInformationMessage('✨ Gemini Assistant: Analyzing code for fixes & refactoring...');
+    provider.sendUserMessageToChat(
+      'Fix and refactor this code. Provide strictly ONLY ONE single best-practice, production-ready code block with a brief explanation. Do not give multiple alternate code blocks:\n```\n' + text + '\n```'
+    );
   };
 
   const executeExplainCode = async () => {
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.activeTextEditor || lastActiveEditor;
     if (!editor) return;
     const selection = editor.selection;
     const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
     if (!text.trim()) return;
+    vscode.window.showInformationMessage('✨ Gemini Assistant: Explaining code step-by-step...');
     provider.sendUserMessageToChat('Explain this code step-by-step:\n```\n' + text + '\n```');
   };
 
@@ -348,9 +362,30 @@ Respond strictly with ONLY the modified replacement code. Do not wrap in markdow
 
   provider.onFixRequested(executeFixCode);
   provider.onExplainRequested(executeExplainCode);
+
+  provider.onInsertCode(async (code: string) => {
+    const targetEditor = vscode.window.activeTextEditor || lastActiveEditor || vscode.window.visibleTextEditors[0];
+    if (!targetEditor) {
+      vscode.window.showErrorMessage('No active code file found to insert into.');
+      return;
+    }
+
+    try {
+      await targetEditor.edit(editBuilder => {
+        const selection = targetEditor.selection;
+        if (!selection.isEmpty) {
+          editBuilder.replace(selection, code);
+        } else {
+          editBuilder.insert(selection.active, code);
+        }
+      });
+      vscode.window.showInformationMessage('✅ Code successfully inserted into editor!');
+    } catch (err: any) {
+      vscode.window.showErrorMessage('Failed to insert code: ' + err.message);
+    }
+  });
 }
 
-// Helper: Scan file for sensitive leaked tokens & keys
 function scanDocumentForSecrets(document: vscode.TextDocument) {
   const text = document.getText();
   const diagnostics: vscode.Diagnostic[] = [];
@@ -380,7 +415,6 @@ function scanDocumentForSecrets(document: vscode.TextDocument) {
   diagnosticCollection.set(document.uri, diagnostics);
 }
 
-// Helper: Git commit generator logic
 async function processDiffCommit(diffText: string) {
   try {
     const prompt = `Generate a concise, professional Git commit message adhering to conventional commit guidelines based on this git diff:\n\n${diffText.substring(0, 3000)}\n\nReturn strictly ONLY the commit message line (e.g. "feat(auth): add token validation").`;
@@ -410,9 +444,6 @@ function updateStatusBar() {
   }
 }
 
-/**
- * Inline Completion Provider with Multi-file Context & Workspace Intelligence
- */
 class GeminiInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   async provideInlineCompletionItems(
     document: vscode.TextDocument,
@@ -430,19 +461,16 @@ class GeminiInlineCompletionProvider implements vscode.InlineCompletionItemProvi
 
     if (!linePrefix.trim() && !isCommentOnPrevLine) return undefined;
 
-    // Configurable debounce delay
     const config = vscode.workspace.getConfiguration('aiCompanion');
     const delay = config.get<number>('debounceDelay', 400);
 
     await new Promise(resolve => setTimeout(resolve, delay));
     if (token.isCancellationRequested || !isCompletionsEnabled) return undefined;
 
-    // Context from surrounding lines
     const startLine = Math.max(0, position.line - 25);
     const prefixRange = new vscode.Range(startLine, 0, position.line, position.character);
     const prefixCode = document.getText(prefixRange);
 
-    // Multi-File Awareness: grab imports / context from another open editor tab
     let workspaceContext = '';
     const otherDocs = vscode.workspace.textDocuments.filter(d => d !== document && !d.isUntitled);
     if (otherDocs.length > 0) {
@@ -488,9 +516,6 @@ ${prefixCode}`;
   }
 }
 
-/**
- * Webview Chat View Provider (Gemini White Aesthetic)
- */
 class AICopilotChatProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _history: Array<{ role: 'user' | 'model'; text: string }> = [];
@@ -525,11 +550,22 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async data => {
       switch (data.type) {
+        case 'aiStarted':
+          vscode.window.showInformationMessage('✨ Gemini Assistant: Working on your code...');
+          break;
         case 'sendMessage':
           await this._handleChatMessage(data.text);
           break;
+        case 'copyCode':
+          if (data.text) {
+            await vscode.env.clipboard.writeText(data.text);
+            vscode.window.showInformationMessage('📋 Code copied to clipboard!');
+          }
+          break;
         case 'insertCode':
-          if (this._insertCallback) await this._insertCallback(data.code);
+          if (this._insertCallback) {
+            await this._insertCallback(data.code);
+          }
           break;
         case 'clearHistory':
           this._history = [];
@@ -546,7 +582,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
 
   private async _handleChatMessage(userMessage: string) {
     if (!this._view) return;
-    this._view.webview.postMessage({ type: 'setLoading', isLoading: true });
 
     try {
       const response = await fetch(API_BASE + '/api/chat', {
@@ -567,8 +602,6 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage({ type: 'botResponse', reply: result.reply });
     } catch (err: any) {
       this._view.webview.postMessage({ type: 'botError', error: err.message || 'Failed to get response.' });
-    } finally {
-      this._view.webview.postMessage({ type: 'setLoading', isLoading: false });
     }
   }
 
@@ -613,6 +646,7 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
     .btn-action-3d { border: none; border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; color: #fff; }
     .btn-fix { background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%); }
     .btn-explain { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
+
     .chat-messages { flex: 1; overflow-y: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 14px; }
     .message-row { display: flex; flex-direction: column; max-width: 96%; }
     .message-row.user { align-self: flex-end; align-items: flex-end; }
@@ -620,10 +654,75 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
     .bubble { padding: 11px 15px; border-radius: 14px; line-height: 1.55; font-size: 13px; word-break: break-word; }
     .bubble.user-msg { background: #1a73e8; color: #ffffff; border-bottom-right-radius: 3px; }
     .bubble.bot-msg { background: #ffffff; border: 1px solid var(--border-color); border-bottom-left-radius: 3px; box-shadow: var(--card-shadow); color: #1f2937; width: 100%; }
+
+    /* Gmail & Gemini Summarize Shimmer Animation */
+    .shimmer-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #ffffff;
+      border: 1px solid #d3e3fd;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(26, 115, 232, 0.08);
+      width: 100%;
+    }
+    .shimmer-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 12px;
+      color: #1a73e8;
+    }
+    .shimmer-sparkle {
+      animation: spinSlow 3s linear infinite;
+    }
+    @keyframes spinSlow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .shimmer-bar {
+      height: 9px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #e8f0fe 0%, #c2e7ff 35%, #d8b4fe 70%, #e8f0fe 100%);
+      background-size: 300% 100%;
+      animation: geminiWave 1.8s infinite ease-in-out;
+    }
+    .shimmer-bar.w-70 { width: 70%; }
+    .shimmer-bar.w-90 { width: 90%; }
+    .shimmer-bar.w-50 { width: 50%; }
+
+    @keyframes geminiWave {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+
+    .server-status {
+      font-size: 11px;
+      color: #ea580c;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    .cursor-blink {
+      display: inline-block;
+      width: 5px;
+      height: 13px;
+      background-color: #1a73e8;
+      animation: blink 0.8s infinite;
+      vertical-align: middle;
+      margin-left: 3px;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
     .code-container { margin: 10px 0; border-radius: 10px; overflow: hidden; background: #111827; }
     .code-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #1f2937; font-size: 11px; color: #93c5fd; font-weight: 700; }
-    .code-btn { border: none; padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 6px; }
-    .code-btn-copy { background: rgba(255,255,255,0.15); color: #fff; }
+    .code-btn { border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 6px; }
+    .code-btn-copy { background: rgba(255,255,255,0.18); color: #fff; }
     .code-btn-insert { background: #10b981; color: #fff; }
     pre { margin: 0; padding: 12px; overflow-x: auto; font-family: monospace; font-size: 12.5px; color: #e5e7eb; }
     .chat-input-bar { padding: 12px 14px; background: #ffffff; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
@@ -670,6 +769,170 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
     const chipFix = document.getElementById('chipFix');
     const chipExplain = document.getElementById('chipExplain');
 
+    let audioCtx = null;
+    function ensureAudioContext() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!audioCtx && AudioCtx) {
+          audioCtx = new AudioCtx();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      } catch (e) {}
+    }
+
+    // Realistic Dual-Mechanical Camera Shutter / Screenshot Sound (Ka-Chick!)
+    async function playCameraScreenshotSound() {
+      try {
+        ensureAudioContext();
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+
+        const t = audioCtx.currentTime;
+
+        // Dynamics Compressor for studio-level punch
+        const compressor = audioCtx.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-14, t);
+        compressor.knee.setValueAtTime(6, t);
+        compressor.ratio.setValueAtTime(8, t);
+        compressor.attack.setValueAtTime(0.001, t);
+        compressor.release.setValueAtTime(0.08, t);
+        compressor.connect(audioCtx.destination);
+
+        const master = audioCtx.createGain();
+        master.gain.setValueAtTime(1.1, t);
+        master.connect(compressor);
+
+        // Procedural White Noise Buffer
+        const bufferSize = Math.floor(audioCtx.sampleRate * 0.25);
+        const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = Math.random() * 2 - 1;
+        }
+
+        // --- SNAP 1: Shutter Open (t = 0) ---
+        const noise1 = audioCtx.createBufferSource();
+        noise1.buffer = noiseBuffer;
+        const filter1 = audioCtx.createBiquadFilter();
+        filter1.type = 'bandpass';
+        filter1.frequency.setValueAtTime(3600, t);
+        filter1.Q.setValueAtTime(2.2, t);
+        const gain1 = audioCtx.createGain();
+        gain1.gain.setValueAtTime(0.9, t);
+        gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.022);
+        noise1.connect(filter1);
+        filter1.connect(gain1);
+        gain1.connect(master);
+        noise1.start(t);
+        noise1.stop(t + 0.022);
+
+        const clickOsc1 = audioCtx.createOscillator();
+        const clickGain1 = audioCtx.createGain();
+        clickOsc1.type = 'triangle';
+        clickOsc1.frequency.setValueAtTime(2900, t);
+        clickOsc1.frequency.exponentialRampToValueAtTime(850, t + 0.018);
+        clickGain1.gain.setValueAtTime(0.6, t);
+        clickGain1.gain.exponentialRampToValueAtTime(0.001, t + 0.018);
+        clickOsc1.connect(clickGain1);
+        clickGain1.connect(master);
+        clickOsc1.start(t);
+        clickOsc1.stop(t + 0.018);
+
+        // --- SNAP 2: Shutter Close & Body Reflex (t = 0.055s) ---
+        const t2 = t + 0.055;
+
+        const noise2 = audioCtx.createBufferSource();
+        noise2.buffer = noiseBuffer;
+        const filter2 = audioCtx.createBiquadFilter();
+        filter2.type = 'bandpass';
+        filter2.frequency.setValueAtTime(1600, t2);
+        filter2.Q.setValueAtTime(1.4, t2);
+        const gain2 = audioCtx.createGain();
+        gain2.gain.setValueAtTime(0, t);
+        gain2.gain.setValueAtTime(1.1, t2);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.075);
+        noise2.connect(filter2);
+        filter2.connect(gain2);
+        gain2.connect(master);
+        noise2.start(t2);
+        noise2.stop(t2 + 0.075);
+
+        const latchOsc = audioCtx.createOscillator();
+        const latchGain = audioCtx.createGain();
+        latchOsc.type = 'sawtooth';
+        latchOsc.frequency.setValueAtTime(1200, t2);
+        latchOsc.frequency.exponentialRampToValueAtTime(320, t2 + 0.035);
+        latchGain.gain.setValueAtTime(0, t);
+        latchGain.gain.setValueAtTime(0.4, t2);
+        latchGain.gain.exponentialRampToValueAtTime(0.001, t2 + 0.035);
+        latchOsc.connect(latchGain);
+        latchGain.connect(master);
+        latchOsc.start(t2);
+        latchOsc.stop(t2 + 0.035);
+
+        // Low body tactile thump
+        const bodyOsc = audioCtx.createOscillator();
+        const bodyGain = audioCtx.createGain();
+        bodyOsc.type = 'sine';
+        bodyOsc.frequency.setValueAtTime(140, t2);
+        bodyOsc.frequency.exponentialRampToValueAtTime(40, t2 + 0.14);
+        bodyGain.gain.setValueAtTime(0, t);
+        bodyGain.gain.setValueAtTime(0.9, t2);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, t2 + 0.14);
+        bodyOsc.connect(bodyGain);
+        bodyGain.connect(master);
+        bodyOsc.start(t2);
+        bodyOsc.stop(t2 + 0.14);
+
+      } catch (e) {
+        console.warn('Audio shutter error:', e);
+      }
+    }
+
+    let activeShimmerRow = null;
+    let coldStartTimer = null;
+
+    function showShimmerLoading() {
+      if (activeShimmerRow) return;
+
+      const row = document.createElement('div');
+      row.className = 'message-row bot';
+      row.innerHTML = \`
+        <div class="shimmer-container">
+          <div class="shimmer-header">
+            <span class="shimmer-sparkle">✨</span>
+            <span id="shimmerTitle">Gemini is thinking...</span>
+          </div>
+          <div class="shimmer-bar w-90"></div>
+          <div class="shimmer-bar w-70"></div>
+          <div class="shimmer-bar w-50"></div>
+          <div id="coldStartMsg" class="server-status" style="display: none;">
+            ⏳ Waking up server on Render... (first request takes ~40s)
+          </div>
+        </div>
+      \`;
+      messagesContainer.appendChild(row);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      activeShimmerRow = row;
+
+      coldStartTimer = setTimeout(() => {
+        const msg = document.getElementById('coldStartMsg');
+        if (msg) msg.style.display = 'block';
+      }, 5000);
+    }
+
+    function removeShimmer() {
+      if (coldStartTimer) clearTimeout(coldStartTimer);
+      if (activeShimmerRow && activeShimmerRow.parentNode) {
+        activeShimmerRow.remove();
+      }
+      activeShimmerRow = null;
+    }
+
     function parseMarkdown(text) {
       const wrapper = document.createElement('div');
       const segments = text.split('\`\`\`');
@@ -677,11 +940,44 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
         if (i % 2 === 1) {
           const firstLine = segments[i].indexOf('\\n');
           const codeText = firstLine !== -1 ? segments[i].substring(firstLine + 1) : segments[i];
+          
           const box = document.createElement('div');
           box.className = 'code-container';
-          box.innerHTML = \`<div class="code-header"><span>CODE</span><div><button class="code-btn code-btn-copy" onclick="navigator.clipboard.writeText(\\\`\${codeText.replace(/[\`\\\\]/g, '\\\\$&')}\\\`)">Copy</button><button class="code-btn code-btn-insert" onclick="vscode.postMessage({type:'insertCode', code:\\\`\${codeText.replace(/[\`\\\\]/g, '\\\\$&')}\\\`})">Insert</button></div></div><pre><code>\${codeText}</code></pre>\`;
+
+          const header = document.createElement('div');
+          header.className = 'code-header';
+          header.innerHTML = '<span>CODE</span>';
+
+          const btnGroup = document.createElement('div');
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'code-btn code-btn-copy';
+          copyBtn.innerText = 'Copy';
+          copyBtn.onclick = () => {
+            vscode.postMessage({ type: 'copyCode', text: codeText });
+            copyBtn.innerText = 'Copied!';
+            setTimeout(() => { copyBtn.innerText = 'Copy'; }, 2000);
+          };
+
+          const insertBtn = document.createElement('button');
+          insertBtn.className = 'code-btn code-btn-insert';
+          insertBtn.innerText = 'Insert';
+          insertBtn.onclick = () => {
+            vscode.postMessage({ type: 'insertCode', code: codeText });
+          };
+
+          btnGroup.appendChild(copyBtn);
+          btnGroup.appendChild(insertBtn);
+          header.appendChild(btnGroup);
+
+          const pre = document.createElement('pre');
+          const codeElem = document.createElement('code');
+          codeElem.textContent = codeText;
+          pre.appendChild(codeElem);
+
+          box.appendChild(header);
+          box.appendChild(pre);
           wrapper.appendChild(box);
-        } else if (segments[i].trim()) {
+        } else if (segments[i].length > 0) {
           const p = document.createElement('div');
           p.style.whiteSpace = 'pre-wrap';
           p.textContent = segments[i];
@@ -689,6 +985,42 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
         }
       }
       return wrapper;
+    }
+
+    function streamBotResponse(fullText) {
+      removeShimmer();
+
+      const row = document.createElement('div');
+      row.className = 'message-row bot';
+      const b = document.createElement('div');
+      b.className = 'bubble bot-msg';
+      row.appendChild(b);
+      messagesContainer.appendChild(row);
+
+      const words = fullText.split(' ');
+      let currentText = '';
+      let index = 0;
+
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor-blink';
+
+      const interval = setInterval(() => {
+        if (index < words.length) {
+          currentText += (index === 0 ? '' : ' ') + words[index];
+          b.innerHTML = '';
+          b.appendChild(parseMarkdown(currentText));
+          b.appendChild(cursor);
+          index++;
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        } else {
+          clearInterval(interval);
+          if (cursor.parentNode) cursor.remove();
+          b.innerHTML = '';
+          b.appendChild(parseMarkdown(fullText));
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          playCameraScreenshotSound();
+        }
+      }, 20);
     }
 
     function addMessage(text, isUser) {
@@ -703,22 +1035,58 @@ class AICopilotChatProvider implements vscode.WebviewViewProvider {
     }
 
     sendBtn.onclick = () => {
+      ensureAudioContext();
       const txt = chatInput.value.trim();
       if (!txt) return;
       addMessage(txt, true);
+      showShimmerLoading();
+      vscode.postMessage({ type: 'aiStarted' });
       vscode.postMessage({ type: 'sendMessage', text: txt });
       chatInput.value = '';
     };
 
-    chatInput.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); } };
-    clearBtn.onclick = () => { messagesContainer.innerHTML = ''; vscode.postMessage({ type: 'clearHistory' }); };
-    chipFix.onclick = () => vscode.postMessage({ type: 'triggerFix' });
-    chipExplain.onclick = () => vscode.postMessage({ type: 'triggerExplain' });
+    chatInput.onkeydown = e => { 
+      if (e.key === 'Enter' && !e.shiftKey) { 
+        e.preventDefault(); 
+        sendBtn.click(); 
+      } 
+    };
+
+    clearBtn.onclick = () => { 
+      removeShimmer();
+      messagesContainer.innerHTML = ''; 
+      vscode.postMessage({ type: 'clearHistory' }); 
+    };
+
+    chipFix.onclick = () => {
+      ensureAudioContext();
+      showShimmerLoading();
+      vscode.postMessage({ type: 'aiStarted' });
+      vscode.postMessage({ type: 'triggerFix' });
+    };
+
+    chipExplain.onclick = () => {
+      ensureAudioContext();
+      showShimmerLoading();
+      vscode.postMessage({ type: 'aiStarted' });
+      vscode.postMessage({ type: 'triggerExplain' });
+    };
 
     window.addEventListener('message', e => {
       const m = e.data;
-      if (m.type === 'botResponse') addMessage(m.reply, false);
-      if (m.type === 'triggerChat') { addMessage(m.text, true); vscode.postMessage({ type: 'sendMessage', text: m.text }); }
+      if (m.type === 'botResponse') {
+        streamBotResponse(m.reply);
+      }
+      if (m.type === 'botError') {
+        removeShimmer();
+        addMessage('❌ Error: ' + m.error, false);
+      }
+      if (m.type === 'triggerChat') {
+        addMessage(m.text, true);
+        showShimmerLoading();
+        vscode.postMessage({ type: 'aiStarted' });
+        vscode.postMessage({ type: 'sendMessage', text: m.text });
+      }
     });
   </script>
 </body>
